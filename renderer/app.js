@@ -15,6 +15,7 @@
   const selectedFilePaths = new Set();
   let currentContacts = [];
   let currentMessages = [];
+  let mirrorRecordingSerial = '';
   const storageCache = new Map();
   const $ = id => document.getElementById(id);
   const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -52,6 +53,8 @@
     const mirrorButton = document.querySelector('.mirror-panel .startmirror');
     mirrorButton.removeAttribute('onclick');
     mirrorButton.addEventListener('click', () => devices[0] ? startMirror(devices[0].serial) : notify('Connect an Android device first.'));
+    const mirrorPanel = document.querySelector('#mirror .card.panel');
+    mirrorPanel.addEventListener('click', event => { const button = event.target.closest('[data-mirror-action]'); if (button) runMirrorAction(button.dataset.mirrorAction); });
     const content = document.querySelector('.content');
     content.insertAdjacentHTML('beforeend', '<section class="view" id="contacts"><div class="hello"><div><p class="eyebrow">PEOPLE</p><h1>Contacts</h1><p class="sub">View phone numbers, and import or export contacts.</p></div></div><div class="card panel"><div class="data-toolbar"><select id="contactsDevice" class="field"></select><input id="contactSearch" class="field" placeholder="Search contacts or numbers"><button class="btn primary" id="loadContacts">Load contacts</button><button class="btn secondary" id="importContacts">Import vCard</button><button class="btn secondary" id="exportContacts">Export CSV</button></div><div class="data-list" id="contactsList"><div class="empty">Select a device to view its contacts.</div></div></div></section><section class="view" id="messages"><div class="hello"><div><p class="eyebrow">TEXT MESSAGES</p><h1>Messages</h1><p class="sub">Read SMS messages on a connected Android device.</p></div></div><div class="card panel"><div class="data-toolbar"><select id="messagesDevice" class="field"></select><input id="messageSearch" class="field" placeholder="Search messages or numbers"><button class="btn primary" id="loadMessages">Load messages</button></div><div class="data-list" id="messagesList"><div class="empty">Select a device to view its messages.</div></div></div></section>');
     document.body.insertAdjacentHTML('beforeend', '<div class="message-drawer-wrap" id="messageDrawer"><aside class="message-drawer" role="dialog" aria-modal="true" aria-labelledby="messageDrawerTitle"><div class="message-drawer-head"><div><p class="eyebrow">TEXT MESSAGE</p><h2 id="messageDrawerTitle">Message details</h2></div><button class="close" id="closeMessageDrawer" aria-label="Close message">×</button></div><div id="messageDrawerContent"></div></aside></div>');
@@ -411,7 +414,7 @@
     updateDeviceSnapshot();
     loadStorage($('storageDevice')?.value, true);
     if ($('fileDevice')?.value && $('fileDevice').value !== $('storageDevice')?.value) loadStorage($('fileDevice').value, true);
-    $('mirror').querySelector('.card.panel').innerHTML = `<div class="panel-title"><h2>${count ? 'Choose a device to mirror' : 'No device is ready to mirror'}</h2><span class="textlink">Powered by scrcpy</span></div>${count ? `<div class="devices" style="grid-template-columns:1fr 1fr">${devices.map(d => `<div class="step"><div class="stepnum">${d.kind === 'Tablet' ? '▭' : '▯'}</div><div><b>${escapeHtml(d.model)}</b><small>${escapeHtml(d.android)} · Ready to mirror</small></div><button class="device-action" data-mirror="${escapeHtml(d.serial)}">Start →</button></div>`).join('')}</div><p class="sub" style="margin-top:20px;font-size:11px">Mirroring opens in a separate scrcpy window. USB usually gives the most responsive experience.</p>` : `${emptyDevices(message)}<p class="sub" style="margin:12px 0 0">Install ADB and scrcpy to use device controls. See the setup guide.</p>`}`;
+    $('mirror').querySelector('.card.panel').innerHTML = count ? `<div class="panel-title"><div><h2>Mirror workspace</h2><span class="textlink">Live screen · Powered by scrcpy</span></div><select class="field mirror-device-select" id="mirrorDevice" aria-label="Device to mirror">${selectOptions(devices[0].serial)}</select></div><div class="mirror-workspace"><div class="mirror-frame" id="mirrorFrame"><div class="mirror-frame-head"><span>DEVICE SCREEN</span><span class="mirror-live-dot"><i></i> READY</span></div><div class="mirror-screen-viewport"><div class="mirror-placeholder" id="mirrorPlaceholder"><span class="mirror-placeholder-icon">▯</span><b>Ready to mirror</b><small>The live scrcpy window opens when you press Start mirror.</small><button class="btn primary" data-mirror-action="start">Start mirror</button></div><img id="mirrorScreenshot" class="mirror-screenshot" alt="Latest phone screenshot" style="display:none"></div></div><div class="mirror-toolbar" aria-label="Phone mirror controls"><button class="mirror-tool" data-mirror-action="back" title="Go back on phone"><span>↶</span><small>Back</small></button><button class="mirror-tool" data-mirror-action="recents" title="Open recent apps on phone"><span>▢</span><small>Recent apps</small></button><button class="mirror-tool" data-mirror-action="vibrate" title="Vibrate phone"><span>〰</span><small>Vibrate</small></button><button class="mirror-tool" data-mirror-action="screenshot" title="Take a screenshot"><span>▣</span><small>Screenshot</small></button><button class="mirror-tool mirror-record" id="mirrorRecordButton" data-mirror-action="record-start" title="Start video capture"><span>●</span><small>Video capture</small></button><button class="mirror-tool" data-mirror-action="minimize" title="Minimize mirror frame"><span>—</span><small>Minimize</small></button><button class="mirror-tool mirror-close" data-mirror-action="close" title="Close scrcpy mirror"><span>×</span><small>Close</small></button></div></div><p class="sub mirror-status" id="mirrorStatus">Choose Start mirror for the live scrcpy window. Controls here operate the selected phone.</p>` : `<div class="panel-title"><h2>No device is ready to mirror</h2><span class="textlink">USB or Wi-Fi</span></div>${emptyDevices(message)}`;
     document.querySelectorAll('[data-refresh]').forEach(el => el.addEventListener('click', refreshDevices));
     document.querySelectorAll('[data-mirror]').forEach(el => el.addEventListener('click', () => startMirror(el.dataset.mirror)));
     document.querySelectorAll('[data-transfer]').forEach(el => el.addEventListener('click', () => transferFiles(el.dataset.transfer)));
@@ -433,8 +436,48 @@
   async function startMirror(serial) {
     const result = await api.mirror(serial);
     notify(result.ok ? 'Mirror opened in a scrcpy window.' : result.message);
+    if ($('mirrorStatus')) $('mirrorStatus').textContent = result.ok ? 'The live scrcpy mirror is open. Use the controls here to operate the phone.' : result.message;
   }
   window.startMirror = startMirror;
+
+  async function runMirrorAction(action) {
+    const serial = $('mirrorDevice')?.value || devices[0]?.serial;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    const frame = $('mirrorFrame');
+    if (action === 'minimize') {
+      frame?.classList.toggle('minimized');
+      const minimized = frame?.classList.contains('minimized');
+      const button = document.querySelector('[data-mirror-action="minimize"] small');
+      if (button) button.textContent = minimized ? 'Restore' : 'Minimize';
+      return;
+    }
+    if (action === 'close' && mirrorRecordingSerial === serial) await runMirrorAction('record-stop');
+    if (action === 'start') { await startMirror(serial); return; }
+    const result = await api.mirrorAction(serial, action);
+    if (result.canceled) { if (action === 'record-stop') resetMirrorRecordingButton(); return; }
+    if (!result.ok && action === 'record-stop') resetMirrorRecordingButton();
+    if (!result.ok) { notify(result.message || 'Mirror control failed.'); if ($('mirrorStatus')) $('mirrorStatus').textContent = result.message || 'Mirror control failed.'; return; }
+    if (action === 'screenshot' && result.dataUrl) {
+      const image = $('mirrorScreenshot'); image.src = result.dataUrl; image.style.display = 'block';
+      $('mirrorPlaceholder').style.display = 'none'; frame?.classList.add('has-screenshot');
+    }
+    if (action === 'record-start') {
+      mirrorRecordingSerial = serial;
+      const button = $('mirrorRecordButton'); button.dataset.mirrorAction = 'record-stop'; button.classList.add('recording');
+      button.title = 'Stop video capture and save the clip'; button.querySelector('small').textContent = 'Stop & save';
+    } else if (action === 'record-stop') {
+      resetMirrorRecordingButton();
+    }
+    if (action === 'close') $('mirrorStatus').textContent = 'Mirror window closed.';
+    else if (action === 'screenshot') $('mirrorStatus').textContent = 'Screenshot saved. The latest capture is shown in this frame.';
+    else $('mirrorStatus').textContent = result.message;
+    notify(result.message);
+  }
+
+  function resetMirrorRecordingButton() {
+    mirrorRecordingSerial = '';
+    const button = $('mirrorRecordButton'); if (button) { button.dataset.mirrorAction = 'record-start'; button.classList.remove('recording'); button.title = 'Start video capture'; button.querySelector('small').textContent = 'Video capture'; }
+  }
 
   async function transferFiles(serial) {
     const result = await api.transferFiles(serial);

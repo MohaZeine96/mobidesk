@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MobiDesk Mirror</title>
+  <style>
+    *{box-sizing:border-box}html,body{height:100%;margin:0}body{background:#101827;color:#e8edf6;font:13px "Segoe UI",sans-serif;overflow:hidden}.app{height:100%;display:grid;grid-template-rows:58px minmax(0,1fr) 32px;background:linear-gradient(145deg,#111c2e,#0b1220)}.top{display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid #263449;background:#121d2f}.brand{width:32px;height:32px;display:grid;place-items:center;border-radius:10px;background:linear-gradient(145deg,#7288ff,#4b62df);box-shadow:0 4px 16px #3f5ee544}.brand svg{width:19px;height:19px;fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.title{font-size:14px;font-weight:700;letter-spacing:.1px}.device{margin-left:auto;max-width:38%;padding:6px 10px;border:1px solid #34435a;border-radius:8px;background:#1a2940;color:#aebee0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stage{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 76px;gap:12px;padding:14px}.screen-shell{position:relative;min-width:0;min-height:0;overflow:hidden;border:1px solid #34425a;border-radius:16px;background:#05080d;box-shadow:0 16px 42px #0307128a}.screen{position:absolute;inset:0;background:#05080d}.empty{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:10px;padding:24px;text-align:center;color:#9aa9c1;pointer-events:none}.empty svg{width:42px;height:42px;stroke:#7185b5;fill:none;stroke-width:1.5}.empty strong{color:#d5dced;font-size:14px}.empty span{max-width:340px;font-size:12px;line-height:1.5}.screen.ready + .empty{display:none}.rail{display:flex;flex-direction:column;align-items:center;gap:9px;padding:10px 8px;border:1px solid #26364d;border-radius:15px;background:#142137;box-shadow:0 10px 28px #03071255}.divider{width:30px;height:1px;margin:2px 0;background:#30415b}.control{position:relative;width:46px;height:46px;display:grid;place-items:center;border:1px solid #33435b;border-radius:13px;background:#1a2a42;color:#bdc9de;padding:0;cursor:pointer;transition:background .15s,border-color .15s,transform .15s}.control:hover{background:#263a59;border-color:#6078bc;color:#fff;transform:translateY(-1px)}.control:disabled{opacity:.55;cursor:wait;transform:none}.glyph{width:22px;height:22px;display:grid;place-items:center}.glyph svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.control:hover:after{content:attr(data-tooltip);position:absolute;z-index:8;right:calc(100% + 10px);top:50%;transform:translateY(-50%);padding:8px 10px;border:1px solid #364761;border-radius:8px;background:#0a1220;color:#f1f4fb;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 8px 24px #020611aa;pointer-events:none}.record .glyph{color:#ff8c87}.recording{background:#48292f;border-color:#81454d;color:#ffaaa5}.close{margin-top:auto;color:#ff9a96}.close:hover{background:#512e35;border-color:#ab565c}.footer{display:flex;align-items:center;gap:8px;padding:0 18px;border-top:1px solid #263449;color:#95a4bb;font-size:11px}.dot{width:7px;height:7px;border-radius:50%;background:#e1ae59;box-shadow:0 0 0 3px #e1ae5918}.dot.connected{background:#5bd3a0;box-shadow:0 0 0 3px #5bd3a018}.hint{margin-left:auto;color:#72819a}@media(max-width:680px){.stage{grid-template-columns:minmax(0,1fr) 62px;gap:8px;padding:8px}.rail{padding:8px 5px}.control{width:42px;height:42px}.top{padding:0 11px}.hint{display:none}}
+  </style>
+  <style>
+    .screen-area{display:grid;place-items:center;min-width:0;min-height:0;overflow:hidden}
+    .screen-shell{width:280px;height:590px;max-width:100%;max-height:100%;justify-self:center;align-self:center;overflow:visible;border:2px solid #596273;border-radius:36px;background:linear-gradient(145deg,#303744,#0a0d13 34%,#171d27);box-shadow:0 18px 38px #0009,0 0 0 1px #05070b, inset 0 0 0 1px #ffffff12}
+    .screen-shell::before{content:"";position:absolute;z-index:6;top:5px;left:50%;width:34px;height:4px;transform:translateX(-50%);border-radius:9px;background:#68717f;box-shadow:0 1px 2px #000}
+    .screen-shell::after{content:"";position:absolute;z-index:6;right:-5px;top:112px;width:4px;height:58px;border-radius:0 3px 3px 0;background:linear-gradient(90deg,#596273,#242a34);box-shadow:1px 2px 4px #0008}
+    .screen{inset:11px;border-radius:25px;overflow:hidden}
+    .empty{inset:11px;border-radius:25px}
+    html,body,.app,.stage,.screen-area{background:transparent}.app{grid-template-rows:minmax(0,1fr)}.stage{padding:5px;grid-template-columns:minmax(0,1fr) 76px;gap:5px;-webkit-app-region:drag}.screen-area,.screen{-webkit-app-region:no-drag}.screen-shell{-webkit-app-region:drag}.screen-shell::before,.screen-shell::after{display:none}.screen-shell{border:2px solid #73809866;border-radius:22px;box-shadow:0 10px 28px #02061155,0 0 0 1px #ffffff12}.screen{inset:5px;border-radius:16px}.empty{inset:5px;border-radius:16px}.active-app{flex:none;color:#9aabc5}.home-control{color:#aebdf0}.rail{height:100%;gap:4px;padding:4px 8px;border:1px solid #34415a;border-radius:18px;background:#142137cc;box-shadow:0 10px 24px #02061155;overflow:visible;scrollbar-width:none;-webkit-app-region:no-drag}.rail::-webkit-scrollbar{display:none}.control{width:40px;height:40px;-webkit-app-region:no-drag}.control.keyboard-visible{color:#aebdf0;border-color:#536895;background:#21324c}.pc-keyboard-input{position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;resize:none;-webkit-app-region:no-drag}.close{margin-top:0}.control:hover:after{position:fixed;right:auto;left:var(--tip-x,50%);top:var(--tip-y,0px);bottom:auto;transform:translateX(-50%);z-index:9999}.mirror-toast{position:absolute;z-index:7;left:14px;bottom:14px;max-width:calc(100% - 28px);padding:8px 11px;border:1px solid #46566f;border-radius:9px;background:#101a2beF;color:#dbe5f7;font-size:11px;line-height:1.4;box-shadow:0 6px 22px #02061177;opacity:0;transform:translateY(4px);transition:opacity .16s,transform .16s;pointer-events:none}.mirror-toast.visible{opacity:1;transform:translateY(0)}@media(max-height:580px){.rail{gap:3px;padding:4px 8px}.control{height:32px;min-height:32px}.divider{margin:0}}
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="stage">
+      <div id="screenArea" class="screen-area"><div id="screenShell" class="screen-shell"><div id="screen" class="screen"></div><div class="empty"><svg viewBox="0 0 24 24"><rect x="5" y="2.5" width="14" height="19" rx="3"/><path d="M9 18h6"/></svg><strong id="screenTitle">Connecting to your phone…</strong><span id="screenHint">Keep the phone awake while MobiDesk attaches the mirror.</span></div><div id="status" class="mirror-toast" role="status" aria-live="polite"></div></div></div>
+      <aside class="rail" aria-label="Phone controls">
+        <button class="control close" data-action="close" data-tooltip="Close mirror" title="Close mirror" aria-label="Close mirror"><span class="glyph"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></span></button>
+        <button class="control" data-action="minimize" data-tooltip="Minimize mirror" title="Minimize mirror" aria-label="Minimize mirror"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M5 17h14"/></svg></span></button>
+        <span class="divider"></span>
+        <button id="activeApp" class="control active-app" data-tooltip="Checking active app…" title="Current foreground app" aria-label="Current foreground app"><span class="glyph"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h8v8H8z"/></svg></span></button>
+        <span class="divider"></span>
+        <button id="keyboardToggle" class="control" data-action="keyboard-toggle" data-tooltip="Show touch keyboard" title="Show touch keyboard" aria-label="Show touch keyboard"><span class="glyph"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M6 9h1m3 0h1m3 0h1m3 0h1M6 12h1m3 0h1m3 0h1m3 0h1M9 15h6"/></svg></span></button>
+        <button class="control" data-action="back" data-tooltip="Back" title="Back" aria-label="Back"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M9 5 3 12l6 7M4 12h16"/></svg></span></button>
+        <button class="control home-control" data-action="home" data-tooltip="Home screen" title="Home screen" aria-label="Home screen"><span class="glyph"><svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-6v-7h-4v7H4a1 1 0 0 1-1-1z"/></svg></span></button>
+        <button class="control" data-action="recents" data-tooltip="Recent apps" title="Recent apps" aria-label="Recent apps"><span class="glyph"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h8v8H8z"/></svg></span></button>
+        <button class="control" data-action="vibrate" data-tooltip="Vibrate phone" title="Vibrate phone" aria-label="Vibrate phone"><span class="glyph"><svg viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="18" rx="2"/><path d="M4 8v8m16-8v8M2 10v4m20-4v4"/></svg></span></button>
+        <span class="divider"></span>
+        <button class="control" data-action="volume-up" data-tooltip="Volume up" title="Volume up" aria-label="Volume up"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M4 10v4h3l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6M18 6a9 9 0 0 1 0 12M19 4v6m-3-3h6"/></svg></span></button>
+        <button class="control" data-action="volume-down" data-tooltip="Volume down" title="Volume down" aria-label="Volume down"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M4 10v4h3l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6M18 6a9 9 0 0 1 0 12M16 18h6"/></svg></span></button>
+        <button class="control power-control" data-action="power" data-tooltip="Power button" title="Power button" aria-label="Power button"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M7 5.8a9 9 0 1 0 10 0"/></svg></span></button>
+        <span class="divider"></span>
+        <button class="control" data-action="screenshot" data-tooltip="Take screenshot" title="Take screenshot" aria-label="Take screenshot"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.2"/></svg></span></button>
+        <button class="control record" id="record" data-action="record-start" data-tooltip="Capture video" title="Capture video" aria-label="Capture video"><span class="glyph"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/></svg></span></button>
+      </aside>
+      <textarea id="pcKeyboardInput" class="pc-keyboard-input" aria-label="PC keyboard input" tabindex="-1"></textarea>
+    </section>
+  </main>
+  <script>
+    const api=window.mobiDesk;
+    const serial=new URLSearchParams(location.search).get('serial')||'';
+    const screen=document.getElementById('screen');
+    const screenArea=document.getElementById('screenArea');
+    const screenShell=document.getElementById('screenShell');
+    const status=document.getElementById('status');
+    const record=document.getElementById('record');
+    const activeApp=document.getElementById('activeApp');
+    const pcKeyboardInput=document.getElementById('pcKeyboardInput');
+    let busy=false, attaching=false, attachAgain=false, attached=false, windowFitRequested=false, deviceAspect=9/19, retryTimer=0, resizeTimer=0;
+    function fitFrame(){const area=screenArea.getBoundingClientRect(),bezel=10;if(area.width<=bezel||area.height<=bezel)return;let screenWidth=area.width-bezel,screenHeight=screenWidth/deviceAspect;if(screenHeight>area.height-bezel){screenHeight=area.height-bezel;screenWidth=screenHeight*deviceAspect;}screenShell.style.width=`${Math.round(screenWidth+bezel)}px`;screenShell.style.height=`${Math.round(screenHeight+bezel)}px`;}
+    let statusTimer=0;
+    function setStatus(message,connected=attached){status.textContent=message;status.classList.add('visible');clearTimeout(statusTimer);if(connected||message!=='Connecting to scrcpy…')statusTimer=setTimeout(()=>status.classList.remove('visible'),2600);}
+    function setRecording(active){const label=active?'Stop capture and save video':'Capture video';record.dataset.action=active?'record-stop':'record-start';record.dataset.tooltip=label;record.title=label;record.setAttribute('aria-label',label);record.classList.toggle('recording',active);record.innerHTML=`<span class="glyph"><svg viewBox="0 0 24 24">${active?'<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>':'<circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/>'}</svg></span>`;}
+    let appPollBusy=false;
+    async function refreshActiveApp(){if(appPollBusy||!api||!serial)return;appPollBusy=true;try{const result=await api.foregroundApp(serial);if(result.ok){const name=result.label||'No active app detected';activeApp.dataset.tooltip=`Active app: ${name}`;activeApp.title=result.activity?`${result.packageName}/${result.activity}`:name;if(attached&&windowFitRequested&&Number.isFinite(result.aspect)&&result.aspect>0.2&&result.aspect<4&&Math.abs(deviceAspect-result.aspect)>0.01){const fitted=await api.fitMirrorWindow(serial,result.aspect);if(fitted.ok){deviceAspect=result.aspect;fitFrame();}}}}catch{}finally{appPollBusy=false;}}
+    function setTouchKeyboardVisible(visible){const button=document.getElementById('keyboardToggle');const label=visible?'Hide touch keyboard':'Show touch keyboard';button.classList.toggle('keyboard-visible',visible);button.dataset.tooltip=`${label}; click to type from PC`;button.title=`${label}; click to type from PC`;button.setAttribute('aria-label',`${label} and enable PC typing`);}
+    async function refreshKeyboardState(){if(!api||!serial)return;try{const result=await api.keyboardState(serial);if(result.ok)setTouchKeyboardVisible(result.visible);else setStatus(result.message||'Could not read the keyboard setting.');}catch(error){setStatus(error.message||'Could not read the keyboard setting.');}}
+    let pcKeyboardEnabled=false,pendingKeyboardText='',keyboardFlushTimer=0,keyboardInputQueue=Promise.resolve();
+    const keyboardKeys={Backspace:true,Delete:true,Enter:true,Tab:true,Escape:true,ArrowUp:true,ArrowDown:true,ArrowLeft:true,ArrowRight:true,Home:true,End:true,PageUp:true,PageDown:true};
+    function queueKeyboardInput(method,value){keyboardInputQueue=keyboardInputQueue.then(async()=>{const result=method==='text'?await api.typeMirrorText(serial,value):await api.pressMirrorKey(serial,value);if(!result.ok)setStatus(result.message||'Could not send keyboard input.');else if(method==='text')setStatus(`Sent ${value.length} characters to the phone.`);}).catch(error=>setStatus(error.message||'Could not send keyboard input.'));}
+    function flushKeyboardText(){clearTimeout(keyboardFlushTimer);const text=pendingKeyboardText;pendingKeyboardText='';if(text)queueKeyboardInput('text',text);}
+    window.addEventListener('keydown',event=>{if(!pcKeyboardEnabled||event.target instanceof Element&&event.target.closest('.control'))return;if(keyboardKeys[event.key]){event.preventDefault();flushKeyboardText();queueKeyboardInput('key',event.key);return;}const altGraph=event.getModifierState&&event.getModifierState('AltGraph');if(event.key.length===1&&!event.metaKey&&(!event.ctrlKey&&!event.altKey||altGraph)){event.preventDefault();pendingKeyboardText+=event.key;clearTimeout(keyboardFlushTimer);if(pendingKeyboardText.length>=256)flushKeyboardText();else keyboardFlushTimer=setTimeout(flushKeyboardText,120);}});
+    async function attachScreen(){
+      if(!api||!serial)return;
+      if(attaching){attachAgain=true;return;}
+      attaching=true;
+      try{
+        const box=screen.getBoundingClientRect(),scale=window.devicePixelRatio||1;
+        const result=await api.embedMirror(serial,{x:box.x*scale,y:box.y*scale,width:box.width*scale,height:box.height*scale});
+        if(result.ok){attached=true;screen.classList.add('ready');let layoutChanged=false;if(!windowFitRequested){if(Number.isFinite(result.aspect)&&result.aspect>0.2&&result.aspect<4){deviceAspect=result.aspect;fitFrame();}windowFitRequested=true;layoutChanged=true;api.fitMirrorWindow(serial,deviceAspect).then(scheduleAttach,scheduleAttach);}if(layoutChanged)attachAgain=true;setStatus(`Live mirror · ${Math.round(box.width)} × ${Math.round(box.height)}`,true);}
+        else if(result.waiting){setStatus('Connecting to scrcpy…',false);retryTimer=window.setTimeout(attachScreen,450);}
+        else{document.getElementById('screenTitle').textContent='Mirror could not attach';document.getElementById('screenHint').textContent=result.message||'Close the mirror and try again.';setStatus(result.message||'Could not attach the live screen.',false);}
+      }catch(error){setStatus(error.message||'Could not attach the live screen.',false);}
+      finally{
+        attaching=false;
+        if(attachAgain){attachAgain=false;clearTimeout(retryTimer);retryTimer=setTimeout(attachScreen,80);}
+      }
+    }
+    function scheduleAttach(){fitFrame();clearTimeout(resizeTimer);resizeTimer=setTimeout(attachScreen,120);}
+    window.addEventListener('resize',scheduleAttach);
+    if(window.ResizeObserver)new ResizeObserver(scheduleAttach).observe(screenArea);
+    refreshActiveApp();setInterval(refreshActiveApp,2000);refreshKeyboardState();
+    document.querySelectorAll('.control[data-tooltip]').forEach(button=>button.addEventListener('mouseenter',()=>{const rect=button.getBoundingClientRect();button.style.setProperty('--tip-x',`${rect.left+rect.width/2}px`);button.style.setProperty('--tip-y',`${rect.top>44?rect.top-34:rect.bottom+8}px`);}));
+    document.querySelectorAll('[data-action]').forEach(button=>button.addEventListener('click',async()=>{
+      if(busy||!api||!serial)return;
+      const action=button.dataset.action;
+      busy=true;document.querySelectorAll('.control').forEach(item=>item.disabled=true);setStatus(action==='record-stop'?'Stopping capture and saving video…':'Working…');
+      try{
+        const result=await api.mirrorAction(serial,action);
+        if(action==='keyboard-toggle'){if(result.ok)setTouchKeyboardVisible(result.visible);pcKeyboardEnabled=true;pcKeyboardInput.focus();setStatus(result.ok?'PC typing is ready. Focus a text field on the phone, then type.':result.message||'PC typing is ready. Focus a text field on the phone, then type.');}
+        if(action==='record-start'&&result.ok)setRecording(true);
+        if(action==='record-stop'&&(result.ok||result.canceled))setRecording(false);
+        if(result.canceled){setStatus('Capture stopped. The save dialog was canceled; the video remains on the phone.');return;}
+        if(action!=='minimize'&&action!=='close'&&action!=='keyboard-toggle')setStatus(result.message||(result.ok?'Done.':'Action failed.'));
+        if(action==='close'&&result.ok)window.close();
+      }catch(error){setStatus(error.message||'The mirror action failed.');}
+      finally{busy=false;document.querySelectorAll('.control').forEach(item=>item.disabled=false);if(action==='keyboard-toggle')setTimeout(()=>pcKeyboardInput.focus(),0);}
+    }));
+    window.addEventListener('DOMContentLoaded',()=>{setTimeout(attachScreen,160);});
+    fitFrame();
+    setTimeout(attachScreen,220);
+  </script>
+</body>
+</html>

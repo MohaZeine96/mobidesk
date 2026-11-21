@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, screen } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { isIP } = require('node:net');
@@ -10,6 +10,11 @@ const execFileAsync = promisify(execFile);
 
 let win;
 const mirrorProcesses = new Map();
+const mirrorRecordings = new Map();
+const mirrorControlWindows = new Map();
+const mirrorWindowTitles = new Map();
+const mirrorWindowHandles = new Map();
+const mirrorWindowAspects = new Map();
 
 function candidates(name) {
   const exe = process.platform === 'win32' ? `${name}.exe` : name;
@@ -39,6 +44,7 @@ async function run(tool, args, timeout = 12000, maxBuffer = 2 * 1024 * 1024) {
 }
 
 function validSerial(serial) { return typeof serial === 'string' && serial.length > 0 && serial.length < 256 && !/[\0\r\n]/.test(serial); }
+function shellQuote(value) { return `'${value.replace(/'/g, "'\\''")}'`; }
 function androidPath(value) {
   if (typeof value !== 'string' || value.length > 1024 || !value.startsWith('/') || /[\0\r\n]/.test(value)) return null;
   return value.replace(/\/+/g, '/') || '/';
@@ -107,6 +113,27 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
+function openMirrorControlWindow(serial) {
+  const existing = mirrorControlWindows.get(serial);
+  if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return existing; }
+  const controlWindow = new BrowserWindow({
+    width: 420, height: 720, minWidth: 300, minHeight: 334,
+    frame: false, transparent: true, hasShadow: false, title: 'MobiDesk Mirror', icon: path.join(__dirname, 'assets', 'mobidesk.ico'), backgroundColor: '#00000000', autoHideMenuBar: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
+  });
+  mirrorControlWindows.set(serial, controlWindow);
+  controlWindow.on('closed', () => {
+    if (mirrorControlWindows.get(serial) === controlWindow) mirrorControlWindows.delete(serial);
+    const mirror = mirrorProcesses.get(serial);
+    if (mirror) { mirror.kill(); mirrorProcesses.delete(serial); }
+    mirrorWindowTitles.delete(serial);
+    mirrorWindowHandles.delete(serial);
+    mirrorWindowAspects.delete(serial);
+  });
+  controlWindow.loadFile(path.join(__dirname, 'renderer', 'mirror-controls.html'), { query: { serial } });
+  return controlWindow;
+}
+
 ipcMain.handle('devices:list', getDevices);
 ipcMain.handle('device:wifi-discover', async () => {
   const adb = await resolveTool('adb');
@@ -165,14 +192,234 @@ ipcMain.handle('tools:status', async () => {
 });
 ipcMain.handle('device:mirror', async (_event, serial) => {
   if (typeof serial !== 'string' || !serial.trim()) return { ok: false, message: 'Choose a connected device first.' };
-  if (mirrorProcesses.has(serial)) return { ok: true, alreadyRunning: true };
+  if (mirrorProcesses.has(serial)) {
+    openMirrorControlWindow(serial);
+    return { ok: true, alreadyRunning: true };
+  }
   const scrcpy = await resolveTool('scrcpy');
   if (!scrcpy) return { ok: false, message: 'scrcpy was not found. Install scrcpy and add it to PATH, then try again.' };
-  const child = spawn(scrcpy, ['--serial', serial], { windowsHide: false, stdio: 'ignore' });
+  const title = `MobiDesk Mirror - ${serial}`;
+  mirrorWindowTitles.set(serial, { title });
+  const args = ['--serial', serial, '--window-title', title, '--no-window-aspect-ratio-lock', '--render-fit=letterbox', '--keyboard=uhid'];
+  const child = spawn(scrcpy, args, { windowsHide: true, stdio: 'ignore' });
   mirrorProcesses.set(serial, child);
-  child.on('exit', () => mirrorProcesses.delete(serial));
-  child.on('error', err => { mirrorProcesses.delete(serial); sendToast(`Could not start scrcpy: ${err.message}`); });
+  openMirrorControlWindow(serial);
+  child.on('exit', () => {
+    mirrorProcesses.delete(serial); mirrorWindowTitles.delete(serial); mirrorWindowHandles.delete(serial); mirrorWindowAspects.delete(serial);
+    const controls = mirrorControlWindows.get(serial); if (controls && !controls.isDestroyed()) controls.close();
+  });
+  child.on('error', err => {
+    mirrorProcesses.delete(serial); mirrorWindowTitles.delete(serial); mirrorWindowHandles.delete(serial); mirrorWindowAspects.delete(serial);
+    const controls = mirrorControlWindows.get(serial); if (controls && !controls.isDestroyed()) controls.close();
+    sendToast(`Could not start scrcpy: ${err.message}`);
+  });
   return { ok: true };
+});
+ipcMain.handle('device:mirror-action', async (_event, serial, action) => {
+  if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.' };
+  const dialogWindow = BrowserWindow.fromWebContents(_event.sender) || win;
+  const allowed = new Set(['back', 'home', 'recents', 'volume-up', 'volume-down', 'power', 'vibrate', 'screenshot', 'record-start', 'record-stop', 'keyboard-toggle', 'minimize', 'close']);
+  if (!allowed.has(action)) return { ok: false, message: 'Unknown mirror action.' };
+  if (action === 'close') {
+    const mirror = mirrorProcesses.get(serial);
+    if (mirror) { mirror.kill(); mirrorProcesses.delete(serial); }
+    const controls = mirrorControlWindows.get(serial); if (controls && !controls.isDestroyed()) controls.close();
+    mirrorControlWindows.delete(serial); mirrorWindowTitles.delete(serial); mirrorWindowHandles.delete(serial); mirrorWindowAspects.delete(serial);
+    return { ok: true, message: mirror ? 'Mirror window closed.' : 'Mirror window is already closed.' };
+  }
+  if (action === 'minimize') {
+    const mirrorWindow = mirrorControlWindows.get(serial);
+    if (!mirrorWindow || mirrorWindow.isDestroyed()) return { ok: false, message: 'Start the mirror before minimizing it.' };
+    mirrorWindow.minimize();
+    return { ok: true, message: 'Mirror window minimized.' };
+  }
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.' };
+  if (action === 'keyboard-toggle') {
+    try {
+      const { stdout } = await run(adb, ['-s', serial, 'shell', 'settings', 'get', 'secure', 'show_ime_with_hard_keyboard']);
+      const visible = stdout.trim() !== '1';
+      await run(adb, ['-s', serial, 'shell', 'settings', 'put', 'secure', 'show_ime_with_hard_keyboard', visible ? '1' : '0']);
+      return { ok: true, visible, message: `On-screen keyboard ${visible ? 'enabled' : 'hidden'} for PC keyboard input.` };
+    } catch (error) { return { ok: false, message: error.stderr?.trim() || error.message }; }
+  }
+  if (['back', 'home', 'recents', 'volume-up', 'volume-down', 'power'].includes(action)) {
+    const keycode = { back: '4', home: '3', recents: '187', 'volume-up': '24', 'volume-down': '25', power: '26' }[action];
+    const label = { back: 'Back', home: 'Home', recents: 'Recent apps', 'volume-up': 'Volume up', 'volume-down': 'Volume down', power: 'Power' }[action];
+    try { await run(adb, ['-s', serial, 'shell', 'input', 'keyevent', keycode]); return { ok: true, message: action === 'recents' ? 'Recent apps opened on the phone.' : `${label} sent to the phone.` }; }
+    catch (error) { return { ok: false, message: error.stderr?.trim() || error.message }; }
+  }
+  if (action === 'vibrate') {
+    try {
+      try { await run(adb, ['-s', serial, 'shell', 'cmd', 'vibrator', 'vibrate', '180', 'MobiDesk']); }
+      catch { await run(adb, ['-s', serial, 'shell', 'cmd', 'vibrator_manager', 'vibrate', '180', 'MobiDesk']); }
+      return { ok: true, message: 'Phone vibrated.' };
+    } catch (error) { return { ok: false, message: error.stderr?.trim() || 'This Android version does not allow vibration through ADB.' }; }
+  }
+  if (action === 'screenshot') {
+    try {
+      const { stdout } = await execFileAsync(adb, ['-s', serial, 'exec-out', 'screencap', '-p'], { encoding: 'buffer', timeout: 30000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
+      const { canceled, filePath } = await dialog.showSaveDialog(dialogWindow, { title: 'Save phone screenshot', defaultPath: `MobiDesk-Screenshot-${Date.now()}.png`, filters: [{ name: 'PNG image', extensions: ['png'] }] });
+      if (canceled || !filePath) return { ok: false, canceled: true };
+      await fsPromises.writeFile(filePath, stdout);
+      return { ok: true, message: 'Screenshot saved.', dataUrl: `data:image/png;base64,${stdout.toString('base64')}` };
+    } catch (error) { return { ok: false, message: error.stderr?.trim() || error.message }; }
+  }
+  if (action === 'record-start') {
+    if (mirrorRecordings.has(serial)) return { ok: false, message: 'Video capture is already running.' };
+    const remotePath = `/sdcard/Movies/MobiDesk-Capture-${Date.now()}.mp4`;
+    try {
+      await run(adb, ['-s', serial, 'shell', 'mkdir', '-p', '/sdcard/Movies']);
+      const child = spawn(adb, ['-s', serial, 'shell', 'screenrecord', '--time-limit', '180', remotePath], { windowsHide: true, stdio: 'ignore' });
+      const recording = { child, remotePath };
+      mirrorRecordings.set(serial, recording);
+      child.on('exit', () => { if (mirrorRecordings.get(serial) === recording) mirrorRecordings.delete(serial); });
+      child.on('error', () => mirrorRecordings.delete(serial));
+      return { ok: true, message: 'Video capture started. Android screen recording is limited to 3 minutes per clip.' };
+    } catch (error) { mirrorRecordings.delete(serial); return { ok: false, message: error.stderr?.trim() || error.message }; }
+  }
+  if (action === 'record-stop') {
+    const recording = mirrorRecordings.get(serial);
+    if (!recording) return { ok: false, message: 'There is no video capture running.' };
+    try { await run(adb, ['-s', serial, 'shell', 'pkill', '-INT', 'screenrecord'], 10000); }
+    catch {
+      try {
+        const { stdout } = await run(adb, ['-s', serial, 'shell', 'pidof', 'screenrecord'], 10000);
+        for (const pid of stdout.trim().split(/\s+/).filter(value => /^\d+$/.test(value))) await run(adb, ['-s', serial, 'shell', 'kill', '-2', pid], 10000);
+      } catch {}
+    }
+    await new Promise(resolve => setTimeout(resolve, 900));
+    recording.child.kill(); mirrorRecordings.delete(serial);
+    const { canceled, filePath } = await dialog.showSaveDialog(dialogWindow, { title: 'Save phone video capture', defaultPath: path.basename(recording.remotePath), filters: [{ name: 'MP4 video', extensions: ['mp4'] }] });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    try {
+      await run(adb, ['-s', serial, 'pull', recording.remotePath, filePath], 180000);
+      await run(adb, ['-s', serial, 'shell', 'rm', '-f', recording.remotePath]).catch(() => {});
+      return { ok: true, message: 'Video capture saved.' };
+    } catch (error) { return { ok: false, message: error.stderr?.trim() || 'Could not copy the recording from Android.' }; }
+  }
+  return { ok: false, message: 'Mirror action failed.' };
+});
+ipcMain.handle('device:keyboard-state', async (_event, serial) => {
+  if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.' };
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.' };
+  try {
+    const { stdout } = await run(adb, ['-s', serial, 'shell', 'settings', 'get', 'secure', 'show_ime_with_hard_keyboard']);
+    return { ok: true, visible: stdout.trim() === '1' };
+  } catch (error) { return { ok: false, message: error.stderr?.trim() || error.message }; }
+});
+ipcMain.handle('device:keyboard-type', async (event, serial, text) => {
+  const host = BrowserWindow.fromWebContents(event.sender);
+  if (!validSerial(serial) || !host || host.isDestroyed() || mirrorControlWindows.get(serial) !== host || !mirrorProcesses.has(serial)) {
+    return { ok: false, message: 'The mirror is not ready for keyboard input.' };
+  }
+  if (typeof text !== 'string' || !text.length || text.length > 256 || /[\0-\x1f\x7f]/.test(text)) return { ok: false, message: 'Keyboard text is invalid or too long.' };
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.' };
+  try {
+    for (const part of text.split(/(%s)/g)) {
+      if (!part) continue;
+      if (part === '%s') {
+        await run(adb, ['-s', serial, 'shell', `input text ${shellQuote('%')}`]);
+        await run(adb, ['-s', serial, 'shell', `input text ${shellQuote('s')}`]);
+      } else {
+        await run(adb, ['-s', serial, 'shell', `input text ${shellQuote(part.replace(/ /g, '%s'))}`]);
+      }
+    }
+    return { ok: true };
+  } catch (error) { return { ok: false, message: error.stderr?.trim() || error.message }; }
+});
+ipcMain.handle('device:keyboard-key', async (event, serial, key) => {
+  const host = BrowserWindow.fromWebContents(event.sender);
+  if (!validSerial(serial) || !host || host.isDestroyed() || mirrorControlWindows.get(serial) !== host || !mirrorProcesses.has(serial)) {
+    return { ok: false, message: 'The mirror is not ready for keyboard input.' };
+  }
+  const keycodes = { Backspace: '67', Delete: '112', Enter: '66', Tab: '61', Escape: '111', ArrowUp: '19', ArrowDown: '20', ArrowLeft: '21', ArrowRight: '22', Home: '122', End: '123', PageUp: '92', PageDown: '93' };
+  if (typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(keycodes, key)) return { ok: false, message: 'Unsupported keyboard key.' };
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.' };
+  try {
+    await run(adb, ['-s', serial, 'shell', 'input', 'keyevent', keycodes[key]]);
+    return { ok: true };
+  } catch (error) { return { ok: false, message: error.stderr?.trim() || error.message }; }
+});
+ipcMain.handle('device:mirror-embed', async (event, serial, bounds) => {
+  if (process.platform !== 'win32') return { ok: false, waiting: false, message: 'Embedded scrcpy is currently supported on Windows.' };
+  const host = BrowserWindow.fromWebContents(event.sender);
+  const mirrorHost = mirrorControlWindows.get(serial);
+  const title = mirrorWindowTitles.get(serial)?.title;
+  if (!validSerial(serial) || !host || host.isDestroyed() || mirrorHost !== host || !title || !mirrorProcesses.has(serial)) return { ok: false, waiting: false, message: 'The scrcpy mirror is not running.' };
+  if (!bounds || !['x','y','width','height'].every(key => Number.isFinite(bounds[key])) || bounds.width < 100 || bounds.height < 100 || bounds.width > 12000 || bounds.height > 12000) return { ok: false, waiting: false, message: 'Invalid mirror frame size.' };
+  const native = host.getNativeWindowHandle();
+  let parentHandle = 0n;
+  for (let i = 0; i < native.length; i++) parentHandle |= BigInt(native[i]) << BigInt(i * 8);
+  const helper = path.join(__dirname, 'tools', 'embed-scrcpy-window.ps1');
+  const mirrorProcess = mirrorProcesses.get(serial);
+  if (!mirrorProcess?.pid) return { ok: false, waiting: true, message: 'Waiting for scrcpy to start…' };
+  const childHandle = mirrorWindowHandles.get(serial);
+  const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helper, '-WindowTitle', title, '-ScrcpyProcessId', String(mirrorProcess.pid), '-ParentHandle', parentHandle.toString(16), '-X', String(Math.round(bounds.x)), '-Y', String(Math.round(bounds.y)), '-Width', String(Math.round(bounds.width)), '-Height', String(Math.round(bounds.height))];
+  if (childHandle) args.push('-ChildHandle', childHandle);
+  const savedAspect = mirrorWindowAspects.get(serial);
+  if (savedAspect) args.push('-AspectRatio', String(savedAspect));
+  try {
+    const { stdout } = await execFileAsync('powershell.exe', args, { timeout: 12000, windowsHide: true });
+    const attachedHandle = stdout.match(/MOBIDESK_HWND=([0-9a-f]+)/i)?.[1];
+    const aspect = Number(stdout.match(/MOBIDESK_ASPECT=([0-9.]+)/i)?.[1]);
+    if (attachedHandle) mirrorWindowHandles.set(serial, attachedHandle);
+    if (!savedAspect && Number.isFinite(aspect) && aspect > 0.2 && aspect < 4) mirrorWindowAspects.set(serial, aspect);
+    return { ok: true, waiting: false, aspect: mirrorWindowAspects.get(serial) || 9 / 19 };
+  } catch (error) {
+    const code = Number(error.code);
+    if (code === 3) return { ok: false, waiting: true, message: 'Waiting for the scrcpy screen window…' };
+    if (error.code === 'ETIMEDOUT' || error.killed) return { ok: false, waiting: true, message: 'Windows is taking longer to attach the mirror. Retrying…' };
+    const details = [error.stderr, error.stdout, error.message].filter(Boolean).join('\n').trim();
+    return { ok: false, waiting: false, message: details || 'Could not attach the scrcpy screen to its MobiDesk window.' };
+  }
+});
+ipcMain.handle('device:mirror-fit-window', async (event, serial, aspect) => {
+  const host = BrowserWindow.fromWebContents(event.sender);
+  if (!validSerial(serial) || !host || host.isDestroyed() || mirrorControlWindows.get(serial) !== host || !Number.isFinite(aspect) || aspect < 0.2 || aspect > 4) return { ok: false };
+  const workArea = screen.getDisplayMatching(host.getBounds()).workAreaSize;
+  const horizontalChrome = 91;
+  const verticalChrome = 10;
+  const preferredHeight = host.getContentSize()[1] - verticalChrome;
+  const screenHeight = Math.max(334, Math.min(620, workArea.height - verticalChrome, preferredHeight > 334 ? preferredHeight : 620, (workArea.width - horizontalChrome) / aspect));
+  const width = Math.max(300, Math.ceil(screenHeight * aspect + horizontalChrome));
+  const height = Math.ceil(screenHeight + verticalChrome);
+  host.setMinimumSize(Math.min(width, 300), 334);
+  host.setMaximumSize(workArea.width, workArea.height);
+  host.setAspectRatio(width / height);
+  host.setContentSize(width, height);
+  return { ok: true, width, height };
+});
+ipcMain.handle('device:foreground-app', async (_event, serial) => {
+  if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.' };
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.' };
+  try {
+    let aspect;
+    try {
+      const { stdout } = await run(adb, ['-s', serial, 'shell', 'dumpsys', 'window', 'displays'], 5000);
+      const dimensions = stdout.match(/\bcur=(\d+)x(\d+)\b/i)
+        || stdout.match(/\bapp(?:=|\s+)(\d+)\s*x\s*(\d+)\b/i)
+        || stdout.match(/\bDisplayFrames\s+w=(\d+)\s+h=(\d+)\b/i);
+      if (dimensions) {
+        const width = Number(dimensions[1]), height = Number(dimensions[2]);
+        if (width > 0 && height > 0) aspect = width / height;
+      }
+    } catch {}
+    let output = '';
+    try { output = (await run(adb, ['-s', serial, 'shell', 'dumpsys', 'activity', 'activities'], 8000)).stdout; } catch {}
+    let match = output.match(/\b(?:topResumedActivity|mResumedActivity|mFocusedActivity|ResumedActivity)\b[^\r\n]*?([A-Za-z0-9_.]+\/[A-Za-z0-9_.$]+)/);
+    if (!match) {
+      try { output = (await run(adb, ['-s', serial, 'shell', 'dumpsys', 'window', 'windows'], 8000)).stdout; } catch {}
+      match = output.match(/\bmCurrentFocus\b[^\r\n]*?([A-Za-z0-9_.]+\/[A-Za-z0-9_.$]+)/);
+    }
+    if (!match) return { ok: true, packageName: '', activity: '', label: 'No active app detected', aspect };
+    const [packageName, activity] = match[1].split('/', 2);
+    return { ok: true, packageName, activity, label: packageName, aspect };
+  } catch (error) { return { ok: false, message: error.stderr?.trim() || error.message }; }
 });
 ipcMain.handle('device:files', async (_event, serial) => {
   const adb = await resolveTool('adb');
