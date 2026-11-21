@@ -33,10 +33,10 @@ MobiDesk only operates on devices ADB reports as authorized. The Files page brow
 In Files, import files or folders from Windows, select Android items to export or delete them, and filter the list by Pictures, Audio, Documents, and Videos. The navigation sidebar stays visible while scrolling.
 
 
-On the Files page, storage opens to live capacity cards. Long-press a file or folder to enter selection mode, then export or delete selected items. Use Import files / folders to copy content from Windows into the current Android folder.
+On the Files page, storage opens to live capacity cards. Use Show all to browse indexed files across shared storage; select Pictures, Videos, Audio, Documents, or Other files to filter the results. Show all uses Android's MediaStore index, so unindexed files may not appear. Play opens the built-in audio or video player; open a photo to browse the folder's or Show all's previewable images with Previous/Next controls or the left/right arrow keys. Long-press a file or folder to enter selection mode, then export or delete selected items. Use Import files / folders to copy content from Windows into the current Android folder.
 
 
-The Contacts page shows phone numbers beside contact names. Export a loaded contact list as CSV, or import a vCard (.vcf) and complete the save step on the Android device. The Notifications page (also available from the bell) shows active Android notifications and refreshes while open. Notification content is read over ADB and stays on this PC.
+The Contacts page shows phone numbers beside contact names. Export a loaded contact list as CSV, or import a vCard (.vcf) and complete the save step on the Android device. The Notifications page (also available from the bell) shows active Android notifications and refreshes while a device is connected. Use Clear notifications to dismiss clearable notifications on the selected phone; some ongoing notifications may remain. Notification content is read over ADB and stays on this PC.
 
 
 Open any text message in the slide-out details panel to read its full text, sender number, direction, and date.

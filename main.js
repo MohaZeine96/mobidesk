@@ -58,6 +58,17 @@ function androidPath(value) {
   return value.replace(/\/+/g, '/') || '/';
 }
 function contentRows(stdout) { return stdout.split(/\r?\n/).filter(line => /^Row:\s*\d+\s/.test(line)); }
+function parseMediaGallery(stdout) {
+  const entries = [];
+  for (const row of contentRows(stdout)) {
+    const match = row.match(/^Row:\s*\d+\s+_data=(.*)$/);
+    const filePath = match?.[1]?.trim();
+    if (!filePath || filePath === 'null' || !filePath.startsWith('/') || /[\0\r\n]/.test(filePath)) continue;
+    const name = filePath.slice(filePath.lastIndexOf('/') + 1);
+    if (name) entries.push({ name, path: filePath, directory: false });
+  }
+  return entries;
+}
 function diskStatsArray(stdout, label) {
   const match = stdout.match(new RegExp(`^${label}:\\s*(\\[[^\\r\\n]*\\])\\s*$`, 'm'));
   if (!match) return null;
@@ -815,6 +826,17 @@ ipcMain.handle('device:notifications', async (_event, serial) => {
     return { ok: false, message: error.stderr?.trim() || error.stdout?.trim() || 'Android did not allow reading active notifications over ADB.', notifications: [] };
   }
 });
+ipcMain.handle('device:notifications-clear', async (_event, serial) => {
+  if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.' };
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.' };
+  try {
+    await run(adb, ['-s', serial, 'shell', 'cmd', 'notification', 'cancel_all'], 15000);
+    return { ok: true, message: 'Clear notifications command sent to the device.' };
+  } catch (error) {
+    return { ok: false, message: error.stderr?.trim() || error.stdout?.trim() || 'Could not clear notifications on the device.' };
+  }
+});
 ipcMain.handle('device:files-list', async (_event, serial, requestedPath) => {
   if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.', entries: [] };
   const folder = androidPath(requestedPath);
@@ -826,6 +848,38 @@ ipcMain.handle('device:files-list', async (_event, serial, requestedPath) => {
     const entries = stdout.split(/\r?\n/).map(name => name.trimEnd()).filter(name => name && name !== './' && name !== '../').map(name => ({ name: name.replace(/\/$/, ''), directory: name.endsWith('/') }));
     return { ok: true, path: folder, entries };
   } catch (error) { return { ok: false, message: error.stderr?.trim() || error.stdout?.trim() || 'Could not read this folder. Android restricts some system and app-private paths.', entries: [] }; }
+});
+ipcMain.handle('device:media-gallery', async (_event, serial) => {
+  if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.', entries: [] };
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.', entries: [] };
+  const volumes = new Set(['external']);
+  const errors = [];
+  try {
+    const { stdout } = await run(adb, ['-s', serial, 'shell', 'ls', '-1', '/storage'], 10000, 1024 * 1024);
+    for (const volume of stdout.split(/\r?\n/).map(line => line.trim())) {
+      if (/^[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}$/.test(volume)) volumes.add(volume);
+    }
+  } catch (error) {
+    errors.push(error.stderr?.trim() || error.stdout?.trim() || error.message);
+  }
+  const entriesByPath = new Map();
+  let successfulVolumes = 0;
+  for (const volume of volumes) {
+    try {
+      const { stdout } = await run(adb, ['-s', serial, 'shell', 'content', 'query', '--uri', `content://media/${volume}/file`, '--projection', '_data'], 90000, 64 * 1024 * 1024);
+      successfulVolumes++;
+      for (const entry of parseMediaGallery(stdout)) entriesByPath.set(entry.path, entry);
+    } catch (error) {
+      errors.push(`${volume}: ${error.stderr?.trim() || error.stdout?.trim() || error.message}`);
+    }
+  }
+  const entries = [...entriesByPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+  return {
+    ok: successfulVolumes > 0,
+    message: errors.join(' '),
+    entries
+  };
 });
 ipcMain.handle('device:storage', async (_event, serial) => {
   if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.', internal: null, sdCard: null };

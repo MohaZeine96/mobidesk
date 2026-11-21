@@ -8,7 +8,14 @@
   let currentFileEntries = [];
   let currentFileView = 'list';
   let currentFileFilter = 'all';
+  let fileFilterBeforeGallery = 'all';
+  let fileViewBeforeGallery = 'list';
+  let galleryMode = false;
+  let galleryReturnToStorageRoot = true;
+  let galleryReturnPath = '';
+  let galleryLoadSequence = 0;
   let fileRenderSequence = 0;
+  let mediaPreviewRequest = 0;
   let selectionMode = false;
   let pressTimer = null;
   let suppressFileClick = false;
@@ -16,12 +23,34 @@
   let currentContacts = [];
   let currentMessages = [];
   let notificationsLoading = false;
+  let clearingNotifications = false;
+  let notificationCountSerial = '';
   let storageBreakdownRequest = 0;
   let mirrorRecordingSerial = '';
   const storageCache = new Map();
   const storageBreakdownCache = new Map();
   const $ = id => document.getElementById(id);
   const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const loadingMarkup = message => `<div class="empty loading-state" role="status" aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span></div>`;
+  const loadingInlineMarkup = message => `<span class="loading-inline" role="status"><span class="loading-spinner loading-spinner-inline" aria-hidden="true"></span>${escapeHtml(message)}</span>`;
+  let notificationCount = 0;
+  function updateNotificationCount(count, serial = notificationCountSerial) {
+    const safeCount = Math.max(0, Math.floor(Number(count) || 0));
+    const badge = $('notificationCount');
+    const button = $('notificationBell');
+    notificationCountSerial = serial;
+    notificationCount = safeCount;
+    if (badge) {
+      badge.textContent = safeCount > 99 ? '99+' : String(safeCount);
+      badge.hidden = safeCount === 0;
+    }
+    const clearButton = $('clearNotifications');
+    if (clearButton) clearButton.disabled = safeCount === 0;
+    if (button) {
+      button.setAttribute('aria-label', safeCount ? `${safeCount} active phone notification${safeCount === 1 ? '' : 's'}` : 'View phone notifications');
+      button.title = safeCount ? `${safeCount} active notification${safeCount === 1 ? '' : 's'}` : 'Notifications';
+    }
+  }
   $('device-list').innerHTML = '';
   $('device-list2').innerHTML = '';
   $('navcount').textContent = '0';
@@ -42,14 +71,20 @@
     document.querySelectorAll('.nav[data-page="contacts"],.nav[data-page="messages"]').forEach(nav => nav.addEventListener('click', () => { navigate(nav.dataset.page); loadPersonalData(nav.dataset.page); }));
     document.querySelector('.nav[data-page="notifications"]').addEventListener('click', () => { navigate('notifications'); loadNotifications(); });
     const notificationBell = document.querySelector('.top-right .iconbtn[title="Notifications"]');
+    notificationBell.id = 'notificationBell';
     notificationBell.removeAttribute('onclick');
     notificationBell.setAttribute('aria-label', 'View phone notifications');
     const notificationDot = notificationBell.querySelector('.dot');
-    if (notificationDot) notificationDot.hidden = true;
+    if (notificationDot) {
+      notificationDot.id = 'notificationCount';
+      notificationDot.className = 'notification-count';
+      notificationDot.setAttribute('aria-hidden', 'true');
+      notificationDot.hidden = true;
+    }
     notificationBell.addEventListener('click', () => { navigate('notifications'); loadNotifications(); });
     document.querySelector('.nav[data-page="files"]').addEventListener('click', () => { renderFilesRoot(); loadStorage($('fileDevice').value, true); });
     document.querySelector('.nav[data-page="apps"]').addEventListener('click', () => loadApps());
-    $('files').querySelector('.card.panel').innerHTML = '<div class="panel-title"><h2 id="filesHeading">Device storage</h2><span class="textlink" id="filesSubheading">Choose a storage location</span></div><div class="storage-grid files-storage-grid" id="filesStorageCards"></div><div class="files-toolbar"><select id="fileDevice" class="field"></select><button class="btn secondary" id="refreshFiles">Refresh</button><button class="btn primary" id="uploadFiles">＋ Import files / folders</button></div><div class="file-pathbar" id="filePathbar"><button class="btn secondary" id="fileRoot" title="Return to storage locations">Storage</button><button class="btn secondary" id="fileUp" title="Go up one folder">↑</button><input class="field" id="filePath" value="/sdcard" aria-label="Android folder path"><button class="btn secondary" id="fileGo">Go</button></div><div class="file-controls"><label class="filter-label">Show<select id="fileFilter" class="field" aria-label="Filter files"><option value="all">All types</option><option value="photos">Pictures</option><option value="audio">Audio</option><option value="documents">Documents</option><option value="videos">Videos</option></select></label><div class="view-toggle"><button class="btn secondary active" data-file-view="list">☰ &nbsp;List</button><button class="btn secondary" data-file-view="grid">▦ &nbsp;Grid</button></div></div><div class="file-selection-bar" id="fileSelectionBar"><span id="fileSelectionCount">0 selected</span><button class="btn secondary" id="exportSelected" disabled>↓ Export selected</button><button class="btn danger" id="deleteSelected" disabled>Delete selected</button><button class="btn secondary" id="cancelSelection">Cancel</button></div><p class="sub files-hint">Long-press a file or folder to select it. Browse shared Android storage; protected folders may be unavailable.</p><div class="file-list" id="fileList"></div>';
+    $('files').querySelector('.card.panel').innerHTML = '<div class="panel-title"><h2 id="filesHeading">Device storage</h2><span class="textlink" id="filesSubheading">Choose a storage location</span></div><div class="storage-grid files-storage-grid" id="filesStorageCards"></div><div class="files-toolbar"><select id="fileDevice" class="field"></select><button class="btn secondary" id="openGallery" title="Shows all indexed pictures; use the type filter to browse videos, audio, documents, and other files.">Show all</button><button class="btn secondary" id="refreshFiles">Refresh</button><button class="btn primary" id="uploadFiles">＋ Import files / folders</button></div><div class="file-pathbar" id="filePathbar"><button class="btn secondary" id="fileRoot" title="Return to storage locations">Storage</button><button class="btn secondary" id="fileUp" title="Go up one folder">↑</button><input class="field" id="filePath" value="/sdcard" aria-label="Android folder path"><button class="btn secondary" id="fileGo">Go</button></div><div class="file-controls"><label class="filter-label">Show<select id="fileFilter" class="field" aria-label="Filter files"><option value="all">All types</option><option value="photos">Pictures</option><option value="videos">Videos</option><option value="audio">Audio</option><option value="documents">Documents</option><option value="files">Other files</option></select></label><div class="view-toggle"><button class="btn secondary active" data-file-view="list">☰ &nbsp;List</button><button class="btn secondary" data-file-view="grid">▦ &nbsp;Grid</button></div></div><div class="file-selection-bar" id="fileSelectionBar"><span id="fileSelectionCount">0 selected</span><button class="btn secondary" id="exportSelected" disabled>↓ Export selected</button><button class="btn danger" id="deleteSelected" disabled>Delete selected</button><button class="btn secondary" id="cancelSelection">Cancel</button></div><p class="sub files-hint">Long-press a file or folder to select it. Browse shared Android storage; protected folders may be unavailable.</p><div class="file-list" id="fileList"></div>';
     $('apps').querySelector('.hello').insertAdjacentHTML('beforeend', '<div class="apps-header-actions"><button class="btn secondary" id="openSamsungNotes" title="Open Samsung Notes on the selected device">Open Samsung Notes</button><button class="btn primary" id="installApk">＋ &nbsp;Install APK</button></div>');
     $('apps').querySelector('.card.panel').innerHTML = '<div class="apps-toolbar"><select id="appDevice" class="field"></select><button class="btn secondary" id="refreshApps">Refresh apps</button></div><div class="app-list" id="appList"><div class="empty">Choose a connected device to view its apps.</div></div>';
     const statStorage = document.querySelector('.overview .stat:nth-child(2)');
@@ -73,22 +108,45 @@
     content.insertAdjacentHTML('beforeend', '<section class="view" id="notifications"><div class="hello"><div><p class="eyebrow">DEVICE ALERTS</p><h1>Notifications</h1><p class="sub">Active notifications from your Android device. Content stays on this PC.</p></div></div><div class="card panel"><div class="data-toolbar"><select id="notificationsDevice" class="field" aria-label="Android device"></select><button class="btn secondary" id="refreshNotifications">Refresh</button></div><div class="data-list" id="notificationsList" aria-live="polite"><div class="empty">Choose a connected device to view its notifications.</div></div></div></section>');
     $('refreshNotifications').addEventListener('click', () => loadNotifications());
     $('notificationsDevice').addEventListener('change', () => loadNotifications());
+    $('refreshNotifications').insertAdjacentHTML('afterend', '<button class="btn secondary" id="clearNotifications" title="Dismiss all clearable notifications on the selected device">Clear notifications</button>');
+    $('clearNotifications').addEventListener('click', clearNotifications);
     document.body.insertAdjacentHTML('beforeend', '<div class="message-drawer-wrap" id="messageDrawer"><aside class="message-drawer" role="dialog" aria-modal="true" aria-labelledby="messageDrawerTitle"><div class="message-drawer-head"><div><p class="eyebrow">TEXT MESSAGE</p><h2 id="messageDrawerTitle">Message details</h2></div><button class="close" id="closeMessageDrawer" aria-label="Close message">×</button></div><div id="messageDrawerContent"></div></aside></div>');
     $('messageDrawer').addEventListener('click', event => { if (event.target === $('messageDrawer')) closeMessageDrawer(); });
     $('closeMessageDrawer').addEventListener('click', closeMessageDrawer);
-    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMessageDrawer(); });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeMessageDrawer();
+      const modal = $('mediaPreview');
+      if (!modal?.classList.contains('show')) return;
+      if (event.key === 'Escape') { closeMediaPreview(); return; }
+      const selector = event.key === 'ArrowLeft' ? '[data-media-step="-1"]' : event.key === 'ArrowRight' ? '[data-media-step="1"]' : '';
+      if (!selector) return;
+      const control = modal.querySelector(selector);
+      if (control && !control.disabled) { event.preventDefault(); control.click(); }
+    });
     document.body.insertAdjacentHTML('beforeend', '<div class="modal-wrap media-preview-wrap" id="mediaPreview"></div>');
-    $('mediaPreview').addEventListener('click', event => { if (event.target === $('mediaPreview')) { $('mediaPreview').classList.remove('show'); $('mediaPreview').innerHTML = ''; } });
+    $('mediaPreview').addEventListener('click', event => { if (event.target === $('mediaPreview')) closeMediaPreview(); });
     $('fileDevice').addEventListener('change', () => { currentFilePath = '/sdcard'; atStorageRoot = true; storageCache.delete($('fileDevice').value); loadStorage($('fileDevice').value, true); renderFilesRoot(); });
     $('storageDevice').addEventListener('change', () => { const serial = $('storageDevice').value; loadStorage(serial, true); updateDeviceSnapshot(); if (!$('storageBreakdown').hidden) loadStorageBreakdown(serial); });
     $('snapshotDevice')?.addEventListener('change', updateDeviceSnapshot);
-    $('refreshFiles').addEventListener('click', () => { const serial = $('fileDevice').value; storageCache.delete(serial); if (atStorageRoot) loadStorage(serial, true); else loadFiles(); });
+    $('openGallery').addEventListener('click', () => { if (galleryMode) exitGalleryMode(); else loadGallery(); });
+    $('refreshFiles').addEventListener('click', () => { const serial = $('fileDevice').value; storageCache.delete(serial); if (galleryMode) loadGallery(); else if (atStorageRoot) loadStorage(serial, true); else loadFiles(); });
     $('fileGo').addEventListener('click', () => loadFiles($('filePath').value));
     $('filePath').addEventListener('keydown', e => { if (e.key === 'Enter') loadFiles($('filePath').value); });
     $('fileRoot').addEventListener('click', renderFilesRoot);
     $('filesStorageCards').addEventListener('click', event => { const button = event.target.closest('[data-storage-path]'); if (button) loadFiles(button.dataset.storagePath); });
     $('fileUp').addEventListener('click', () => { if (currentFilePath === '/sdcard' || currentFilePath.split('/').filter(Boolean).length <= 2 && currentFilePath.startsWith('/storage/')) return renderFilesRoot(); const parts = currentFilePath.split('/').filter(Boolean); parts.pop(); loadFiles(`/${parts.join('/')}`); });
-    $('uploadFiles').addEventListener('click', async () => { const result = await api.uploadFiles($('fileDevice').value, currentFilePath); if (!result.canceled) { notify(result.message || 'File upload failed.'); if (result.ok) loadFiles(); } });
+    $('uploadFiles').addEventListener('click', async () => {
+      const button = $('uploadFiles');
+      button.disabled = true; button.innerHTML = loadingInlineMarkup('Importing…');
+      try {
+        const result = await api.uploadFiles($('fileDevice').value, currentFilePath);
+        if (!result.canceled) { notify(result.message || 'File upload failed.'); if (result.ok) loadFiles(); }
+      } catch (error) {
+        notify(error.message || 'File import failed.');
+      } finally {
+        button.disabled = false; button.innerHTML = '＋ Import files / folders';
+      }
+    });
     $('fileFilter').addEventListener('change', () => { currentFileFilter = $('fileFilter').value; renderFileEntries(); });
     $('fileList').addEventListener('change', event => { const checkbox = event.target.closest('[data-select-file]'); if (!checkbox) return; checkbox.checked ? selectedFilePaths.add(checkbox.value) : selectedFilePaths.delete(checkbox.value); updateFileSelection(); });
     $('fileList').addEventListener('pointerdown', beginFilePress);
@@ -97,7 +155,7 @@
     $('exportSelected').addEventListener('click', exportSelectedFiles);
     $('deleteSelected').addEventListener('click', deleteSelectedFiles);
     $('cancelSelection').addEventListener('click', clearFileSelection);
-    document.querySelectorAll('[data-file-view]').forEach(button => button.addEventListener('click', () => { currentFileView = button.dataset.fileView; document.querySelectorAll('[data-file-view]').forEach(item => item.classList.toggle('active', item === button)); renderFileEntries(); }));
+    document.querySelectorAll('[data-file-view]').forEach(button => button.addEventListener('click', () => { setFileView(button.dataset.fileView); renderFileEntries(); }));
     $('appDevice').addEventListener('change', () => loadApps($('appDevice').value));
     $('refreshApps').addEventListener('click', () => loadApps($('appDevice').value));
     $('openSamsungNotes').addEventListener('click', openSamsungNotes);
@@ -153,8 +211,13 @@
   }
 
   function renderFilesRoot() {
+    leaveGalleryMode();
     atStorageRoot = true;
+    fileRenderSequence++;
+    currentFileEntries = [];
     currentFilePath = '/sdcard'; $('filePath').value = currentFilePath;
+    $('fileRoot').textContent = 'Storage';
+    $('fileUp').style.display = ''; $('filePath').style.display = ''; $('fileGo').style.display = '';
     $('filesStorageCards').style.display = '';
     $('uploadFiles').style.display = '';
     $('filesHeading').textContent = 'Device storage'; $('filesSubheading').textContent = 'Choose a storage location';
@@ -163,17 +226,89 @@
     $('fileList').style.display = 'none';
     $('files').querySelector('.files-hint').style.display = 'none';
     $('fileList').innerHTML = '';
+    $('files').querySelector('.files-hint').textContent = 'Long-press a file or folder to select it. Browse shared Android storage; protected folders may be unavailable.';
     clearFileSelection();
+  }
+
+  function leaveGalleryMode() {
+    if (!galleryMode) return;
+    galleryMode = false;
+    galleryLoadSequence++;
+    $('openGallery').textContent = 'Show all';
+    $('openGallery').title = 'Shows all indexed pictures; use the type filter to browse videos, audio, documents, and other files.';
+    currentFileFilter = fileFilterBeforeGallery;
+    $('fileFilter').value = currentFileFilter;
+    setFileView(fileViewBeforeGallery);
+    galleryReturnToStorageRoot = true;
+    galleryReturnPath = '';
+  }
+
+  function exitGalleryMode() {
+    const returnToStorageRoot = galleryReturnToStorageRoot;
+    const returnPath = galleryReturnPath;
+    leaveGalleryMode();
+    if (returnToStorageRoot) renderFilesRoot();
+    else loadFiles(returnPath || '/sdcard');
+  }
+
+  async function loadGallery() {
+    const serial = $('fileDevice').value;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    const request = ++galleryLoadSequence;
+    if (!galleryMode) {
+      galleryReturnToStorageRoot = atStorageRoot;
+      galleryReturnPath = atStorageRoot ? '' : currentFilePath;
+      fileFilterBeforeGallery = currentFileFilter;
+      fileViewBeforeGallery = currentFileView;
+      currentFileFilter = 'photos';
+      setFileView('grid');
+    }
+    galleryMode = true;
+    $('openGallery').textContent = 'Exit Show all';
+    $('openGallery').title = 'Return to the folder or storage view you were in before Show all.';
+    atStorageRoot = false;
+    clearFileSelection();
+    $('fileFilter').value = currentFileFilter;
+    $('filesHeading').textContent = 'Show all';
+    $('filesSubheading').textContent = 'Pictures and other file types across shared storage';
+    $('filesStorageCards').style.display = 'none';
+    $('uploadFiles').style.display = 'none';
+    $('filePathbar').style.display = 'flex';
+    $('fileRoot').textContent = 'Storage';
+    $('fileUp').style.display = 'none'; $('filePath').style.display = 'none'; $('fileGo').style.display = 'none';
+    $('fileFilter').closest('.file-controls').style.display = '';
+    $('fileList').style.display = '';
+    $('files').querySelector('.files-hint').style.display = '';
+    $('files').querySelector('.files-hint').textContent = 'Shows all indexed pictures by default. Choose a type to browse videos, audio, documents, and other files.';
+    fileRenderSequence++;
+    currentFileEntries = [];
+    $('fileList').innerHTML = loadingMarkup('Scanning shared storage…');
+    let result;
+    try { result = await api.mediaGallery(serial); }
+    catch (error) {
+      if (request === galleryLoadSequence && galleryMode) $('fileList').innerHTML = `<div class="empty">${escapeHtml(error.message || 'Could not load the gallery.')}</div>`;
+      return;
+    }
+    if (request !== galleryLoadSequence || !galleryMode || $('fileDevice').value !== serial) return;
+    if (!result.ok) {
+      $('fileList').innerHTML = `<div class="empty">${escapeHtml(result.message || 'Could not load the gallery.')}</div>`;
+      return;
+    }
+    currentFileEntries = result.entries;
+    if (result.message) $('files').querySelector('.files-hint').textContent = `Some storage locations could not be indexed: ${result.message}`;
+    renderFileEntries();
   }
 
   async function loadStorage(serial = $('storageDevice')?.value, force = false) {
     const cards = $('storageCards'); if (!cards) return;
     if (!serial) { applyStorageResult(null, ''); return; }
     if (!force && storageCache.has(serial)) { applyStorageResult(storageCache.get(serial), serial); return; }
-    const pending = '<div class="card storage-card"><div class="empty">Reading live storage information…</div></div>';
+    const pending = `<div class="card storage-card">${loadingMarkup('Reading live storage information…')}</div>`;
     if ($('storageDevice').value === serial) cards.innerHTML = pending;
     if ($('fileDevice').value === serial) $('filesStorageCards').innerHTML = pending;
-    const result = await api.storageInfo(serial);
+    let result;
+    try { result = await api.storageInfo(serial); }
+    catch (error) { result = { ok: false, message: error.message || 'Could not read device storage.' }; }
     storageCache.set(serial, result);
     applyStorageResult(result, serial);
   }
@@ -197,9 +332,9 @@
       return;
     }
     button.disabled = true;
-    status.textContent = 'Reading Android storage statistics…';
-    $('storageCategoryUsage').innerHTML = '<div class="storage-breakdown-message">Reading file types…</div>';
-    $('storageAppUsage').innerHTML = '<div class="storage-breakdown-message">Reading app sizes…</div>';
+    status.innerHTML = loadingInlineMarkup('Reading Android storage statistics…');
+    $('storageCategoryUsage').innerHTML = `<div class="storage-breakdown-message">${loadingInlineMarkup('Reading file types…')}</div>`;
+    $('storageAppUsage').innerHTML = `<div class="storage-breakdown-message">${loadingInlineMarkup('Reading app sizes…')}</div>`;
     try {
       const result = await api.storageBreakdown(serial);
       storageBreakdownCache.set(serial, result);
@@ -257,14 +392,20 @@
   async function loadFiles(pathValue = currentFilePath) {
     const serial = $('fileDevice').value;
     if (!serial) { $('fileList').innerHTML = '<div class="empty">Connect a phone or tablet first.</div>'; return; }
+    leaveGalleryMode();
     atStorageRoot = false;
     clearFileSelection();
     $('uploadFiles').style.display = '';
+    $('fileUp').style.display = ''; $('filePath').style.display = ''; $('fileGo').style.display = '';
+    $('fileRoot').textContent = 'Storage';
     $('filesStorageCards').style.display = 'none'; $('filePathbar').style.display = ''; $('fileFilter').closest('.file-controls').style.display = ''; $('fileList').style.display = ''; $('files').querySelector('.files-hint').style.display = '';
     $('filesHeading').textContent = 'Files'; $('filesSubheading').textContent = 'Browse folders and media';
-    $('fileList').innerHTML = '<div class="empty">Loading Android files…</div>';
+    $('files').querySelector('.files-hint').textContent = 'Long-press a file or folder to select it. Browse shared Android storage; protected folders may be unavailable.';
+    $('fileList').innerHTML = loadingMarkup('Loading Android files…');
     loadStorage(serial);
-    const result = await api.listFiles(serial, pathValue);
+    let result;
+    try { result = await api.listFiles(serial, pathValue); }
+    catch (error) { $('fileList').innerHTML = `<div class="empty">${escapeHtml(error.message || 'Could not read this folder.')}</div>`; return; }
     if (!result.ok) { $('fileList').innerHTML = `<div class="empty">${escapeHtml(result.message)}</div>`; return; }
     currentFilePath = result.path; $('filePath').value = result.path;
     currentFileEntries = result.entries;
@@ -280,26 +421,39 @@
     return 'files';
   }
 
+  function isPreviewableImage(name) {
+    return ['jpg','jpeg','png','gif','webp','bmp','avif'].includes(name.split('.').pop().toLowerCase());
+  }
+
   function renderFileEntries() {
     const renderSequence = ++fileRenderSequence;
     const shown = currentFileEntries.filter(entry => entry.directory || currentFileFilter === 'all' || mediaKind(entry.name) === currentFileFilter);
-    const remotePath = name => `${currentFilePath.replace(/\/$/, '')}/${name}`;
+    const remotePath = entry => entry.path || `${currentFilePath.replace(/\/$/, '')}/${entry.name}`;
     const icon = entry => entry.directory ? '▰' : mediaKind(entry.name) === 'photos' ? '▧' : mediaKind(entry.name) === 'videos' ? '▶' : mediaKind(entry.name) === 'audio' ? '♫' : mediaKind(entry.name) === 'documents' ? '▧' : '▤';
     $('fileList').className = `${currentFileView === 'grid' ? 'file-list file-grid' : 'file-list'}${selectionMode ? ' selection-mode' : ''}`;
-    if (!shown.length) { $('fileList').innerHTML = '<div class="empty">No matching files in this folder.</div>'; updateFileSelection(); return; }
+    if (!shown.length) { $('fileList').innerHTML = `<div class="empty">${galleryMode ? 'No matching files found in shared storage.' : 'No matching files in this folder.'}</div>`; updateFileSelection(); return; }
     $('fileList').innerHTML = shown.map(entry => {
-      const file = remotePath(entry.name); const kind = mediaKind(entry.name); const isPreviewable = !entry.directory && ['photos','videos','audio'].includes(kind);
+      const file = remotePath(entry); const kind = mediaKind(entry.name); const isPreviewable = !entry.directory && (kind === 'photos' ? isPreviewableImage(entry.name) : ['videos','audio'].includes(kind));
       const kindLabel = ({photos:'Picture', videos:'Video', audio:'Audio', documents:'Document', files:'File'})[kind];
       const target = entry.directory ? `data-open-folder="${escapeHtml(entry.name)}"` : isPreviewable ? `data-preview="${escapeHtml(file)}"` : `data-download="${escapeHtml(file)}"`;
+      const playerButton = isPreviewable && ['videos','audio'].includes(kind) ? `<button class="device-action" data-preview="${escapeHtml(file)}" aria-label="Play ${kindLabel.toLowerCase()} ${escapeHtml(entry.name)}">Play</button>` : '';
       const select = `<input class="file-select" type="checkbox" data-select-file value="${escapeHtml(file)}" aria-label="Select ${escapeHtml(entry.name)}" ${selectedFilePaths.has(file) ? 'checked' : ''}>`;
-      if (currentFileView === 'grid') return `<article class="file-tile" data-file-item="${escapeHtml(file)}">${select}<button class="file-tile-open" ${target}><span class="file-tile-icon ${entry.directory ? 'folder' : kind}">${icon(entry)}${kind === 'photos' && !entry.directory ? `<img class="photo-thumb" data-photo-thumb="${escapeHtml(file)}" alt="">` : ''}</span><b>${escapeHtml(entry.name)}${entry.directory ? '/' : ''}</b><small>${entry.directory ? 'Folder' : kindLabel}</small></button><button class="device-action" data-download="${escapeHtml(file)}" data-is-directory="${entry.directory}">Export</button></article>`;
-      return `<div class="file-row" data-file-item="${escapeHtml(file)}">${select}<span class="file-type ${entry.directory ? 'folder' : kind}">${icon(entry)}</span><button class="file-name" ${target}>${escapeHtml(entry.name)}${entry.directory ? '/' : ''}</button><span class="file-kind">${entry.directory ? 'Folder' : kindLabel}</span>${isPreviewable ? `<button class="device-action" data-preview="${escapeHtml(file)}">View</button>` : ''}<button class="device-action" data-download="${escapeHtml(file)}" data-is-directory="${entry.directory}">Export</button></div>`;
+      if (currentFileView === 'grid') return `<article class="file-tile" data-file-item="${escapeHtml(file)}">${select}<button class="file-tile-open" ${target}><span class="file-tile-icon ${entry.directory ? 'folder' : kind}${isPreviewableImage(entry.name) && !entry.directory ? ' photo-loading' : ''}">${icon(entry)}${isPreviewableImage(entry.name) && !entry.directory ? `<img class="photo-thumb" data-photo-thumb="${escapeHtml(file)}" alt="">` : ''}</span><b>${escapeHtml(entry.name)}${entry.directory ? '/' : ''}</b><small>${entry.directory ? 'Folder' : kindLabel}</small></button>${playerButton}<button class="device-action" data-download="${escapeHtml(file)}" data-is-directory="${entry.directory}">Export</button></article>`;
+      return `<div class="file-row" data-file-item="${escapeHtml(file)}">${select}<span class="file-type ${entry.directory ? 'folder' : kind}">${icon(entry)}</span><button class="file-name" ${target}>${escapeHtml(entry.name)}${entry.directory ? '/' : ''}</button><span class="file-kind">${entry.directory ? 'Folder' : kindLabel}</span>${isPreviewable ? `<button class="device-action" data-preview="${escapeHtml(file)}" aria-label="${['videos','audio'].includes(kind) ? 'Play' : 'View'} ${kindLabel.toLowerCase()} ${escapeHtml(entry.name)}">${['videos','audio'].includes(kind) ? 'Play' : 'View'}</button>` : ''}<button class="device-action" data-download="${escapeHtml(file)}" data-is-directory="${entry.directory}">Export</button></div>`;
     }).join('');
     $('fileList').querySelectorAll('[data-open-folder]').forEach(button => button.addEventListener('click', () => loadFiles(`${currentFilePath.replace(/\/$/, '')}/${button.dataset.openFolder}`)));
     $('fileList').querySelectorAll('[data-download]').forEach(button => button.addEventListener('click', async () => { const downloaded = await api.downloadFile($('fileDevice').value, button.dataset.download, button.dataset.isDirectory === 'true'); if (!downloaded.canceled) notify(downloaded.message || 'Export failed.'); }));
     $('fileList').querySelectorAll('[data-preview]').forEach(button => button.addEventListener('click', () => previewMedia(button.dataset.preview)));
-    if (currentFileView === 'grid') loadPhotoThumbnails(shown.filter(entry => !entry.directory && mediaKind(entry.name) === 'photos').slice(0, 12), renderSequence);
+    if (currentFileView === 'grid') {
+      const photos = shown.filter(entry => !entry.directory && isPreviewableImage(entry.name));
+      loadPhotoThumbnails(galleryMode ? photos : photos.slice(0, 12), renderSequence);
+    }
     updateFileSelection();
+  }
+
+  function setFileView(view) {
+    currentFileView = view;
+    document.querySelectorAll('[data-file-view]').forEach(button => button.classList.toggle('active', button.dataset.fileView === view));
   }
 
   function updateFileSelection() {
@@ -357,39 +511,79 @@
       const result = await api.deleteFile($('fileDevice').value, item.path);
       if (!result.ok) { notify(result.message || `Could not delete ${item.name}.`); return; }
     }
-    selectedFilePaths.clear(); notify('Selected items deleted.'); loadFiles();
+    selectedFilePaths.clear(); notify('Selected items deleted.'); if (galleryMode) loadGallery(); else loadFiles();
   }
 
   async function loadPhotoThumbnails(entries, renderSequence) {
     const serial = $('fileDevice').value;
-    for (const entry of entries) {
-      if (renderSequence !== fileRenderSequence) return;
-      const remote = `${currentFilePath.replace(/\/$/, '')}/${entry.name}`;
-      const result = await api.previewFile(serial, remote, true);
-      if (renderSequence !== fileRenderSequence) return;
-      if (result.ok) {
+    let next = 0;
+    const workers = Array.from({ length: Math.min(4, entries.length) }, async () => {
+      while (renderSequence === fileRenderSequence) {
+        const entry = entries[next++];
+        if (!entry) return;
+        const remote = entry.path || `${currentFilePath.replace(/\/$/, '')}/${entry.name}`;
+        const result = await api.previewFile(serial, remote, true);
+        if (renderSequence !== fileRenderSequence) return;
         const image = [...$('fileList').querySelectorAll('[data-photo-thumb]')].find(item => item.dataset.photoThumb === remote);
-        if (image) image.src = result.dataUrl;
+        if (image && !result.ok) image.parentElement.classList.remove('photo-loading');
+        if (result.ok) {
+          if (image) {
+            image.addEventListener('load', () => image.parentElement.classList.remove('photo-loading'), { once: true });
+            image.addEventListener('error', () => image.parentElement.classList.remove('photo-loading'), { once: true });
+            image.src = result.dataUrl;
+          }
+        }
       }
-    }
+    });
+    await Promise.all(workers);
   }
 
   async function previewMedia(remotePath) {
+    const request = ++mediaPreviewRequest;
     const serial = $('fileDevice').value;
     const filename = remotePath.split('/').pop();
-    const result = await api.previewFile(serial, remotePath);
-    if (!result.ok) { notify(result.message); return; }
-    const modal = $('mediaPreview'); const type = result.mime.startsWith('image/') ? 'image' : result.mime.startsWith('video/') ? 'video' : 'audio';
-    const content = type === 'image' ? `<img class="media-image" src="${result.dataUrl}" alt="${escapeHtml(filename)}">` : type === 'video' ? `<video class="media-video" src="${result.dataUrl}" controls autoplay></video>` : `<audio class="media-audio" src="${result.dataUrl}" controls autoplay></audio>`;
-    modal.innerHTML = `<div class="media-preview-card"><div class="media-preview-head"><b>${escapeHtml(filename)}</b><button class="close" id="closeMediaPreview">×</button></div><div class="media-preview-content">${content}</div></div>`;
+    const modal = $('mediaPreview');
+    modal.innerHTML = `<div class="media-preview-card">${loadingMarkup(`Loading ${filename}…`)}</div>`;
     modal.classList.add('show');
-    $('closeMediaPreview').addEventListener('click', () => { modal.classList.remove('show'); modal.innerHTML = ''; });
+    let result;
+    try { result = await api.previewFile(serial, remotePath); }
+    catch (error) {
+      if (request === mediaPreviewRequest) {
+        closeMediaPreview();
+        notify(error.message || `Could not load ${filename}.`);
+      }
+      return;
+    }
+    if (request !== mediaPreviewRequest) return;
+    if (!result.ok) { closeMediaPreview(); notify(result.message); return; }
+    const type = result.mime.startsWith('image/') ? 'image' : result.mime.startsWith('video/') ? 'video' : 'audio';
+    const content = type === 'image' ? `<img class="media-image" src="${result.dataUrl}" alt="${escapeHtml(filename)}">` : type === 'video' ? `<video class="media-video" src="${result.dataUrl}" controls autoplay preload="metadata" aria-label="Video player for ${escapeHtml(filename)}"></video>` : `<audio class="media-audio" src="${result.dataUrl}" controls autoplay preload="metadata" aria-label="Audio player for ${escapeHtml(filename)}"></audio>`;
+    const imagePaths = type === 'image' ? currentFileEntries.filter(entry => !entry.directory && isPreviewableImage(entry.name)).map(entry => entry.path || `${currentFilePath.replace(/\/$/, '')}/${entry.name}`) : [];
+    const imageIndex = imagePaths.indexOf(remotePath);
+    const canNavigate = imageIndex >= 0 && imagePaths.length > 1;
+    const navigation = canNavigate ? `<div class="media-preview-nav"><button type="button" class="btn secondary" id="mediaPrevious" data-media-step="-1" aria-label="Previous image" ${imageIndex === 0 ? 'disabled' : ''}>Previous</button><span>Image ${imageIndex + 1} of ${imagePaths.length}</span><button type="button" class="btn secondary" id="mediaNext" data-media-step="1" aria-label="Next image" ${imageIndex === imagePaths.length - 1 ? 'disabled' : ''}>Next</button></div>` : '';
+    modal.innerHTML = `<div class="media-preview-card${canNavigate ? ' has-image-slider' : ''}"><div class="media-preview-head"><b>${escapeHtml(filename)}</b><button class="close" id="closeMediaPreview" aria-label="Close preview">×</button></div><div class="media-preview-content">${content}</div>${navigation}</div>`;
+    modal.classList.add('show');
+    $('closeMediaPreview').addEventListener('click', closeMediaPreview);
+    if (canNavigate) {
+      $('mediaPrevious').addEventListener('click', () => previewMedia(imagePaths[imageIndex - 1]));
+      $('mediaNext').addEventListener('click', () => previewMedia(imagePaths[imageIndex + 1]));
+    }
+  }
+
+  function closeMediaPreview() {
+    mediaPreviewRequest++;
+    const modal = $('mediaPreview');
+    modal.classList.remove('show');
+    modal.innerHTML = '';
   }
 
   async function loadApps(serial = $('appDevice')?.value) {
     if (!serial) { $('appList').innerHTML = '<div class="empty">Connect a phone or tablet first.</div>'; return; }
-    $('appList').innerHTML = '<div class="empty">Loading installed apps…</div>';
-    const result = await api.listApps(serial);
+    $('appList').innerHTML = loadingMarkup('Loading installed apps…');
+    let result;
+    try { result = await api.listApps(serial); }
+    catch (error) { $('appList').innerHTML = `<div class="empty">${escapeHtml(error.message || 'Could not load installed apps.')}</div>`; return; }
     if (!result.ok) { $('appList').innerHTML = `<div class="empty">${escapeHtml(result.message)}</div>`; return; }
     $('appList').innerHTML = result.apps.length ? result.apps.map(pkg => {
       const name = pkg.split('.').filter(Boolean).pop() || pkg;
@@ -400,9 +594,15 @@
     $('appList').querySelectorAll('[data-uninstall]').forEach(button => button.addEventListener('click', async () => {
       const pkg = button.dataset.uninstall;
       if (!window.confirm(`Uninstall ${pkg} from this Android device?`)) return;
-      button.disabled = true; button.textContent = 'Removing…';
-      const removed = await api.uninstallApp(serial, pkg); notify(removed.message || (removed.ok ? 'App uninstalled.' : 'Uninstall failed.'));
-      if (removed.ok) loadApps(serial); else { button.disabled = false; button.textContent = 'Uninstall'; }
+      button.disabled = true; button.innerHTML = loadingInlineMarkup('Removing…');
+      try {
+        const removed = await api.uninstallApp(serial, pkg); notify(removed.message || (removed.ok ? 'App uninstalled.' : 'Uninstall failed.'));
+        if (removed.ok) loadApps(serial);
+        else { button.disabled = false; button.textContent = 'Uninstall'; }
+      } catch (error) {
+        notify(error.message || `Could not uninstall ${pkg}.`);
+        button.disabled = false; button.textContent = 'Uninstall';
+      }
     }));
   }
 
@@ -410,8 +610,16 @@
     const serial = $('appDevice').value;
     if (!serial) { notify('Connect a phone or tablet first.'); return; }
     if (!window.confirm('Choose an Android APK to install on the selected device? Android may ask you to confirm on the phone.')) return;
-    const result = await api.installApp(serial);
-    if (!result.canceled) { notify(result.message || (result.ok ? 'App installed.' : 'Install failed.')); if (result.ok) loadApps(serial); }
+    const button = $('installApk');
+    button.disabled = true; button.innerHTML = loadingInlineMarkup('Installing…');
+    try {
+      const result = await api.installApp(serial);
+      if (!result.canceled) { notify(result.message || (result.ok ? 'App installed.' : 'Install failed.')); if (result.ok) loadApps(serial); }
+    } catch (error) {
+      notify(error.message || 'APK installation failed.');
+    } finally {
+      button.disabled = false; button.innerHTML = '＋ &nbsp;Install APK';
+    }
   }
 
   async function openSamsungNotes() {
@@ -419,6 +627,7 @@
     if (!serial) { notify('Connect a phone or tablet first.'); return; }
     const button = $('openSamsungNotes');
     button.disabled = true;
+    button.innerHTML = loadingInlineMarkup('Opening…');
     try {
       const result = await api.openSamsungNotes(serial);
       notify(result.message || (result.ok ? 'Samsung Notes opened on the device.' : 'Could not open Samsung Notes.'));
@@ -426,6 +635,7 @@
       notify(error.message || 'Could not open Samsung Notes.');
     } finally {
       button.disabled = false;
+      button.textContent = 'Open Samsung Notes';
     }
   }
 
@@ -434,8 +644,14 @@
     const serial = $(`${section}Device`).value;
     const list = $(`${section}List`);
     if (!serial) { list.innerHTML = '<div class="empty">Connect a phone or tablet first.</div>'; if (contacts) currentContacts = []; return; }
-    list.innerHTML = `<div class="empty">Loading ${contacts ? 'contacts' : 'messages'}…</div>`;
-    const result = contacts ? await api.listContacts(serial) : await api.listMessages(serial);
+    list.innerHTML = loadingMarkup(`Loading ${contacts ? 'contacts' : 'messages'}…`);
+    let result;
+    try { result = contacts ? await api.listContacts(serial) : await api.listMessages(serial); }
+    catch (error) {
+      list.innerHTML = `<div class="empty">${escapeHtml(error.message || `Could not load ${contacts ? 'contacts' : 'messages'}.`)}</div>`;
+      if (contacts) currentContacts = [];
+      return;
+    }
     if (!result.ok) { list.innerHTML = `<div class="empty">${escapeHtml(result.message)}<br><br>Android device software may restrict this data.</div>`; if (contacts) currentContacts = []; return; }
     if (contacts) {
       currentContacts = result.contacts || [];
@@ -456,12 +672,16 @@
     const list = $('notificationsList');
     if (!list) return;
     if (!serial) {
+      updateNotificationCount(0, '');
       list.innerHTML = '<div class="empty">Connect an Android device to view its notifications.</div>';
       return;
     }
-    if (notificationsLoading) return;
+    if (serial !== notificationCountSerial) updateNotificationCount(0, serial);
+    if (notificationsLoading || clearingNotifications) return;
     notificationsLoading = true;
-    if (!quiet) list.innerHTML = '<div class="empty">Loading active notifications…</div>';
+    const clearButton = $('clearNotifications');
+    if (clearButton) clearButton.disabled = true;
+    if (!quiet) list.innerHTML = loadingMarkup('Loading active notifications…');
     try {
       const result = await api.listNotifications(serial);
       if ($('notificationsDevice').value !== serial) return;
@@ -470,8 +690,7 @@
         return;
       }
       const notifications = result.notifications || [];
-      const dot = document.querySelector('.top-right .iconbtn[title="Notifications"] .dot');
-      if (dot) dot.hidden = notifications.length === 0;
+      updateNotificationCount(notifications.length, serial);
       list.innerHTML = notifications.length ? notifications.map(notification => {
         const title = notification.title || notification.text || notification.packageName || 'Notification';
         const text = notification.text && notification.text !== title ? notification.text : '';
@@ -482,7 +701,36 @@
       list.innerHTML = `<div class="empty">${escapeHtml(error.message || 'Could not read notifications.')}</div>`;
     } finally {
       notificationsLoading = false;
+      if (clearButton) clearButton.disabled = notificationCount === 0;
     }
+  }
+
+  async function clearNotifications() {
+    const serial = $('notificationsDevice').value;
+    if (!serial || notificationCount === 0) return;
+    if (!window.confirm('Clear all dismissible notifications from this device?')) return;
+    const button = $('clearNotifications');
+    button.disabled = true;
+    button.innerHTML = loadingInlineMarkup('Clearing…');
+    let refresh = false;
+    clearingNotifications = true;
+    try {
+      const result = await api.clearNotifications(serial);
+      if (!result.ok) { notify(result.message || 'Could not clear notifications.'); return; }
+      if ($('notificationsDevice').value === serial) {
+        updateNotificationCount(0, serial);
+        $('notificationsList').innerHTML = loadingMarkup('Refreshing notifications…');
+      }
+      notify(result.message || 'Notifications cleared.');
+      refresh = true;
+    } catch (error) {
+      notify(error.message || 'Could not clear notifications.');
+    } finally {
+      clearingNotifications = false;
+      button.textContent = 'Clear notifications';
+      button.disabled = notificationCount === 0;
+    }
+    if (refresh) await loadNotifications(undefined, true);
   }
 
   function openMessageAside(message) {
@@ -545,6 +793,7 @@
       const selected = devices.some(d => d.serial === previous) ? previous : devices[0]?.serial;
       select.innerHTML = selectOptions(selected);
     }
+    loadNotifications(undefined, true);
     updateDeviceSnapshot();
     loadStorage($('storageDevice')?.value, true);
     if ($('fileDevice')?.value && $('fileDevice').value !== $('storageDevice')?.value) loadStorage($('fileDevice').value, true);
@@ -558,7 +807,7 @@
   async function refreshDevices() {
     if (scanning) return;
     scanning = true;
-    $('device-label').textContent = 'Scanning…';
+    $('device-label').innerHTML = loadingInlineMarkup('Scanning…');
     try {
       const result = await api.listDevices();
       devices = result.devices || [];
@@ -568,9 +817,17 @@
   }
 
   async function startMirror(serial) {
-    const result = await api.mirror(serial);
-    notify(result.ok ? 'Mirror opened in a scrcpy window.' : result.message);
-    if ($('mirrorStatus')) $('mirrorStatus').textContent = result.ok ? 'The live scrcpy mirror is open. Use the controls here to operate the phone.' : result.message;
+    const status = $('mirrorStatus');
+    if (status) status.innerHTML = loadingInlineMarkup('Starting scrcpy mirror…');
+    try {
+      const result = await api.mirror(serial);
+      notify(result.ok ? 'Mirror opened in a scrcpy window.' : result.message);
+      if (status) status.textContent = result.ok ? 'The live scrcpy mirror is open. Use the controls here to operate the phone.' : result.message;
+    } catch (error) {
+      const message = error.message || 'Could not start the mirror.';
+      notify(message);
+      if (status) status.textContent = message;
+    }
   }
   window.startMirror = startMirror;
 
@@ -651,24 +908,35 @@
       $('wifiDevices').querySelectorAll('[data-wificonnect]').forEach(button => button.addEventListener('click', () => connectWifi(button.dataset.wificonnect, button)));
     };
     const scanWifi = async () => {
-      const button = $('scanWifi'); button.disabled = true; button.textContent = 'Searching…'; setStatus('Looking for Android devices on your Wi-Fi…');
-      const result = await api.discoverWifiDevices();
-      button.disabled = false; button.innerHTML = '⌕ &nbsp; Find nearby devices'; renderWifiDevices(result.devices || []);
-      setStatus(result.devices?.length ? `${result.devices.length} wireless service${result.devices.length === 1 ? '' : 's'} found. Choose Pair or Connect.` : result.message, !result.ok);
+      const button = $('scanWifi'); button.disabled = true; button.innerHTML = loadingInlineMarkup('Searching…'); setStatus('Looking for Android devices on your Wi-Fi…');
+      try {
+        const result = await api.discoverWifiDevices();
+        renderWifiDevices(result.devices || []);
+        setStatus(result.devices?.length ? `${result.devices.length} wireless service${result.devices.length === 1 ? '' : 's'} found. Choose Pair or Connect.` : result.message, !result.ok);
+      } catch (error) {
+        renderWifiDevices([]);
+        setStatus(error.message || 'Could not search for Android devices.', true);
+      } finally {
+        button.disabled = false; button.innerHTML = '⌕ &nbsp; Find nearby devices';
+      }
     };
     const pairWifi = async (endpoint, button) => {
       const code = $('pairCode').value.trim();
       if (!/^\d{6}$/.test(code)) { setStatus('Enter the six-digit pairing code shown on your phone.', true); $('pairCode').focus(); return; }
-      button.disabled = true; button.textContent = 'Pairing…'; setStatus('Pairing with your phone…');
-      const result = await api.pairWifiDevice(endpoint, code);
-      button.disabled = false; button.textContent = 'Pair';
+      button.disabled = true; button.innerHTML = loadingInlineMarkup('Pairing…'); setStatus('Pairing with your phone…');
+      let result;
+      try { result = await api.pairWifiDevice(endpoint, code); }
+      catch (error) { setStatus(error.message || 'Could not pair with the phone.', true); return; }
+      finally { button.disabled = false; button.textContent = 'Pair'; }
       if (!result.ok) { setStatus(result.message, true); return; }
       $('pairCode').value = ''; setStatus('Paired. Finding its secure connection service…'); await scanWifi();
     };
     const connectWifi = async (endpoint, button) => {
-      button.disabled = true; button.textContent = 'Connecting…'; setStatus('Connecting to the selected phone…');
-      const result = await api.connectWifiDevice(endpoint);
-      button.disabled = false; button.textContent = 'Connect';
+      button.disabled = true; button.innerHTML = loadingInlineMarkup('Connecting…'); setStatus('Connecting to the selected phone…');
+      let result;
+      try { result = await api.connectWifiDevice(endpoint); }
+      catch (error) { setStatus(error.message || 'Could not connect to the phone.', true); return; }
+      finally { button.disabled = false; button.textContent = 'Connect'; }
       if (!result.ok) { setStatus(result.message, true); return; }
       closeModal('connectModal'); await refreshDevices(); notify(devices.length ? 'Phone connected over Wi-Fi.' : 'Connection requested. Refresh the device list in a moment.');
     };
@@ -677,7 +945,7 @@
 
   createManagerWorkspace();
   setInterval(() => {
-    if ($('notifications')?.classList.contains('active')) loadNotifications(undefined, true);
+    if (devices.length) loadNotifications(undefined, true);
   }, 8000);
   window.addEventListener('DOMContentLoaded', async () => {
     const tools = await api.toolStatus();
