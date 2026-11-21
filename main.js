@@ -15,6 +15,14 @@ const mirrorControlWindows = new Map();
 const mirrorWindowTitles = new Map();
 const mirrorWindowHandles = new Map();
 const mirrorWindowAspects = new Map();
+const mirrorWindowDimensions = new Map();
+const mirrorAudioDestinations = new Map();
+const mirrorReconnectTimers = new Map();
+const mirrorReconnectAttempts = new Map();
+const mirrorStates = new Map();
+const mirrorStarting = new Set();
+const mirrorCloseRequested = new Set();
+const maxMirrorReconnectAttempts = 5;
 
 function candidates(name) {
   const exe = process.platform === 'win32' ? `${name}.exe` : name;
@@ -122,16 +130,106 @@ function openMirrorControlWindow(serial) {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   mirrorControlWindows.set(serial, controlWindow);
+  controlWindow.webContents.on('did-finish-load', () => {
+    const state = mirrorStates.get(serial);
+    if (state && !controlWindow.isDestroyed()) controlWindow.webContents.send('device:mirror-state', state);
+  });
   controlWindow.on('closed', () => {
     if (mirrorControlWindows.get(serial) === controlWindow) mirrorControlWindows.delete(serial);
+    mirrorCloseRequested.add(serial);
+    clearTimeout(mirrorReconnectTimers.get(serial));
+    mirrorReconnectTimers.delete(serial);
     const mirror = mirrorProcesses.get(serial);
-    if (mirror) { mirror.kill(); mirrorProcesses.delete(serial); }
+    if (mirror) { mirrorProcesses.delete(serial); mirror.kill(); }
+    mirrorReconnectAttempts.delete(serial);
+    mirrorStates.delete(serial);
     mirrorWindowTitles.delete(serial);
     mirrorWindowHandles.delete(serial);
     mirrorWindowAspects.delete(serial);
+    mirrorWindowDimensions.delete(serial);
+    mirrorAudioDestinations.delete(serial);
   });
   controlWindow.loadFile(path.join(__dirname, 'renderer', 'mirror-controls.html'), { query: { serial } });
   return controlWindow;
+}
+
+function sendMirrorState(serial, state) {
+  const updatedState = { ...state, audioDestination: mirrorAudioDestinations.get(serial) || 'pc' };
+  mirrorStates.set(serial, updatedState);
+  const controlWindow = mirrorControlWindows.get(serial);
+  if (controlWindow && !controlWindow.isDestroyed()) controlWindow.webContents.send('device:mirror-state', updatedState);
+}
+
+function clearMirrorReconnectTimer(serial) {
+  const timer = mirrorReconnectTimers.get(serial);
+  if (timer) clearTimeout(timer);
+  mirrorReconnectTimers.delete(serial);
+}
+
+function scheduleMirrorReconnect(serial, code, signal) {
+  if (mirrorCloseRequested.has(serial) || !mirrorControlWindows.has(serial)) return;
+  const attempt = (mirrorReconnectAttempts.get(serial) || 0) + 1;
+  const reason = code === 0 ? 'scrcpy closed.' : `scrcpy stopped (${signal || `exit code ${code}`}).`;
+  if (attempt > maxMirrorReconnectAttempts) {
+    sendMirrorState(serial, { state: 'disconnected', message: `${reason} Automatic reconnect stopped. Click the app control to retry.` });
+    return;
+  }
+  mirrorReconnectAttempts.set(serial, attempt);
+  const delay = Math.min(1000 * (2 ** (attempt - 1)), 15000);
+  sendMirrorState(serial, { state: 'reconnecting', attempt, maxAttempts: maxMirrorReconnectAttempts, delay, message: `${reason} Reconnecting (${attempt}/${maxMirrorReconnectAttempts})…` });
+  const timer = setTimeout(async () => {
+    mirrorReconnectTimers.delete(serial);
+    if (mirrorCloseRequested.has(serial) || !mirrorControlWindows.has(serial)) return;
+    const result = await startMirrorProcess(serial);
+    if (!result.ok) sendMirrorState(serial, { state: 'disconnected', message: result.message || 'Could not restart scrcpy. Click the app control to retry.' });
+  }, delay);
+  mirrorReconnectTimers.set(serial, timer);
+}
+
+async function startMirrorProcess(serial) {
+  if (mirrorProcesses.has(serial) || mirrorStarting.has(serial)) return { ok: true, alreadyRunning: true };
+  if (mirrorCloseRequested.has(serial) || !mirrorControlWindows.has(serial)) return { ok: false, message: 'The mirror window is closed.' };
+  mirrorStarting.add(serial);
+  try {
+    const scrcpy = await resolveTool('scrcpy');
+    if (!scrcpy) {
+      const message = 'scrcpy was not found. Install scrcpy and add it to PATH, then try again.';
+      sendMirrorState(serial, { state: 'disconnected', message });
+      return { ok: false, message };
+    }
+    if (mirrorCloseRequested.has(serial) || !mirrorControlWindows.has(serial)) return { ok: false, message: 'The mirror window is closed.' };
+    const title = `MobiDesk Mirror - ${serial} - ${Date.now()}`;
+    mirrorWindowTitles.set(serial, { title });
+    // Keep scrcpy off-screen until the native-window helper embeds it in the mirror.
+    const args = ['--serial', serial, '--window-title', title, '--window-x=-32000', '--window-y=-32000', '--no-window-aspect-ratio-lock', '--render-fit=letterbox', '--keyboard=uhid', '--push-target=/sdcard/Download'];
+    if (mirrorAudioDestinations.get(serial) === 'phone') args.push('--no-audio');
+    const child = spawn(scrcpy, args, { windowsHide: true, stdio: 'ignore' });
+    mirrorProcesses.set(serial, child);
+    child.once('exit', (code, signal) => {
+      if (mirrorProcesses.get(serial) !== child) return;
+      mirrorProcesses.delete(serial);
+      mirrorWindowHandles.delete(serial);
+      mirrorWindowAspects.delete(serial);
+      mirrorWindowDimensions.delete(serial);
+      scheduleMirrorReconnect(serial, code, signal);
+    });
+    child.once('error', error => {
+      if (mirrorProcesses.get(serial) !== child) return;
+      mirrorProcesses.delete(serial);
+      mirrorWindowHandles.delete(serial);
+      mirrorWindowAspects.delete(serial);
+      mirrorWindowDimensions.delete(serial);
+      sendMirrorState(serial, { state: 'disconnected', message: `Could not start scrcpy: ${error.message}` });
+    });
+    sendMirrorState(serial, { state: 'starting', message: 'Starting scrcpy…' });
+    return { ok: true };
+  } catch (error) {
+    const message = `Could not start scrcpy: ${error.message}`;
+    sendMirrorState(serial, { state: 'disconnected', message });
+    return { ok: false, message };
+  } finally {
+    mirrorStarting.delete(serial);
+  }
 }
 
 ipcMain.handle('devices:list', getDevices);
@@ -192,39 +290,30 @@ ipcMain.handle('tools:status', async () => {
 });
 ipcMain.handle('device:mirror', async (_event, serial) => {
   if (typeof serial !== 'string' || !serial.trim()) return { ok: false, message: 'Choose a connected device first.' };
-  if (mirrorProcesses.has(serial)) {
+  if (mirrorProcesses.has(serial) || mirrorStarting.has(serial)) {
     openMirrorControlWindow(serial);
     return { ok: true, alreadyRunning: true };
   }
-  const scrcpy = await resolveTool('scrcpy');
-  if (!scrcpy) return { ok: false, message: 'scrcpy was not found. Install scrcpy and add it to PATH, then try again.' };
-  const title = `MobiDesk Mirror - ${serial}`;
-  mirrorWindowTitles.set(serial, { title });
-  const args = ['--serial', serial, '--window-title', title, '--no-window-aspect-ratio-lock', '--render-fit=letterbox', '--keyboard=uhid', '--push-target=/sdcard/Download'];
-  const child = spawn(scrcpy, args, { windowsHide: true, stdio: 'ignore' });
-  mirrorProcesses.set(serial, child);
+  mirrorCloseRequested.delete(serial);
+  clearMirrorReconnectTimer(serial);
+  mirrorReconnectAttempts.delete(serial);
   openMirrorControlWindow(serial);
-  child.on('exit', () => {
-    mirrorProcesses.delete(serial); mirrorWindowTitles.delete(serial); mirrorWindowHandles.delete(serial); mirrorWindowAspects.delete(serial);
-    const controls = mirrorControlWindows.get(serial); if (controls && !controls.isDestroyed()) controls.close();
-  });
-  child.on('error', err => {
-    mirrorProcesses.delete(serial); mirrorWindowTitles.delete(serial); mirrorWindowHandles.delete(serial); mirrorWindowAspects.delete(serial);
-    const controls = mirrorControlWindows.get(serial); if (controls && !controls.isDestroyed()) controls.close();
-    sendToast(`Could not start scrcpy: ${err.message}`);
-  });
-  return { ok: true };
+  sendMirrorState(serial, { state: 'starting', message: 'Starting scrcpy…' });
+  return startMirrorProcess(serial);
 });
 ipcMain.handle('device:mirror-action', async (_event, serial, action) => {
   if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.' };
   const dialogWindow = BrowserWindow.fromWebContents(_event.sender) || win;
-  const allowed = new Set(['back', 'home', 'recents', 'volume-up', 'volume-down', 'power', 'vibrate', 'screenshot', 'record-start', 'record-stop', 'keyboard-toggle', 'minimize', 'close']);
+  const allowed = new Set(['back', 'home', 'recents', 'volume-up', 'volume-down', 'power', 'vibrate', 'screenshot', 'record-start', 'record-stop', 'keyboard-toggle', 'audio-toggle', 'minimize', 'close', 'reconnect']);
   if (!allowed.has(action)) return { ok: false, message: 'Unknown mirror action.' };
   if (action === 'close') {
+    mirrorCloseRequested.add(serial);
+    clearMirrorReconnectTimer(serial);
     const mirror = mirrorProcesses.get(serial);
-    if (mirror) { mirror.kill(); mirrorProcesses.delete(serial); }
+    if (mirror) { mirrorProcesses.delete(serial); mirror.kill(); }
     const controls = mirrorControlWindows.get(serial); if (controls && !controls.isDestroyed()) controls.close();
-    mirrorControlWindows.delete(serial); mirrorWindowTitles.delete(serial); mirrorWindowHandles.delete(serial); mirrorWindowAspects.delete(serial);
+    mirrorControlWindows.delete(serial); mirrorWindowTitles.delete(serial); mirrorWindowHandles.delete(serial); mirrorWindowAspects.delete(serial); mirrorWindowDimensions.delete(serial);
+    mirrorAudioDestinations.delete(serial); mirrorReconnectAttempts.delete(serial); mirrorStates.delete(serial);
     return { ok: true, message: mirror ? 'Mirror window closed.' : 'Mirror window is already closed.' };
   }
   if (action === 'minimize') {
@@ -232,6 +321,36 @@ ipcMain.handle('device:mirror-action', async (_event, serial, action) => {
     if (!mirrorWindow || mirrorWindow.isDestroyed()) return { ok: false, message: 'Start the mirror before minimizing it.' };
     mirrorWindow.minimize();
     return { ok: true, message: 'Mirror window minimized.' };
+  }
+  if (action === 'reconnect') {
+    const host = BrowserWindow.fromWebContents(_event.sender);
+    if (!host || host.isDestroyed() || mirrorControlWindows.get(serial) !== host) return { ok: false, message: 'The mirror control window is not available.' };
+    mirrorCloseRequested.delete(serial);
+    clearMirrorReconnectTimer(serial);
+    mirrorReconnectAttempts.delete(serial);
+    const mirror = mirrorProcesses.get(serial);
+    if (mirror) { mirrorProcesses.delete(serial); mirror.kill(); }
+    mirrorWindowHandles.delete(serial); mirrorWindowAspects.delete(serial); mirrorWindowDimensions.delete(serial);
+    sendMirrorState(serial, { state: 'starting', message: 'Reconnecting to scrcpy…' });
+    return startMirrorProcess(serial);
+  }
+  if (action === 'audio-toggle') {
+    const host = BrowserWindow.fromWebContents(_event.sender);
+    if (!host || host.isDestroyed() || mirrorControlWindows.get(serial) !== host) return { ok: false, message: 'The mirror control window is not available.' };
+    const currentDestination = mirrorAudioDestinations.get(serial) || 'pc';
+    const audioDestination = currentDestination === 'pc' ? 'phone' : 'pc';
+    if (mirrorStarting.has(serial)) return { ok: false, audioDestination: currentDestination, message: 'Wait for scrcpy to connect before changing audio output.' };
+    if (mirrorRecordings.has(serial)) return { ok: false, audioDestination: currentDestination, message: 'Stop video capture before changing audio output.' };
+    mirrorAudioDestinations.set(serial, audioDestination);
+    clearMirrorReconnectTimer(serial);
+    mirrorReconnectAttempts.delete(serial);
+    const mirror = mirrorProcesses.get(serial);
+    if (mirror) { mirrorProcesses.delete(serial); mirror.kill(); }
+    mirrorWindowHandles.delete(serial); mirrorWindowAspects.delete(serial); mirrorWindowDimensions.delete(serial);
+    const message = `Switching audio to ${audioDestination === 'pc' ? 'your PC' : 'your phone'}…`;
+    sendMirrorState(serial, { state: 'starting', message });
+    const result = await startMirrorProcess(serial);
+    return { ...result, audioDestination, message: result.ok ? message : result.message };
   }
   const adb = await resolveTool('adb');
   if (!adb) return { ok: false, message: 'ADB is unavailable.' };
@@ -349,7 +468,8 @@ ipcMain.handle('device:mirror-embed', async (event, serial, bounds) => {
   const host = BrowserWindow.fromWebContents(event.sender);
   const mirrorHost = mirrorControlWindows.get(serial);
   const title = mirrorWindowTitles.get(serial)?.title;
-  if (!validSerial(serial) || !host || host.isDestroyed() || mirrorHost !== host || !title || !mirrorProcesses.has(serial)) return { ok: false, waiting: false, message: 'The scrcpy mirror is not running.' };
+  if (!validSerial(serial) || !host || host.isDestroyed() || mirrorHost !== host) return { ok: false, waiting: false, message: 'The scrcpy mirror is not running.' };
+  if (!title || (!mirrorProcesses.has(serial) && !mirrorStarting.has(serial))) return { ok: false, waiting: true, message: 'Waiting for scrcpy to reconnect…' };
   if (!bounds || !['x','y','width','height'].every(key => Number.isFinite(bounds[key])) || bounds.width < 100 || bounds.height < 100 || bounds.width > 12000 || bounds.height > 12000) return { ok: false, waiting: false, message: 'Invalid mirror frame size.' };
   const native = host.getNativeWindowHandle();
   let parentHandle = 0n;
@@ -362,12 +482,23 @@ ipcMain.handle('device:mirror-embed', async (event, serial, bounds) => {
   if (childHandle) args.push('-ChildHandle', childHandle);
   const savedAspect = mirrorWindowAspects.get(serial);
   if (savedAspect) args.push('-AspectRatio', String(savedAspect));
+  const savedDimensions = mirrorWindowDimensions.get(serial);
+  if (savedDimensions) args.push('-SourceWidth', String(savedDimensions.width), '-SourceHeight', String(savedDimensions.height));
   try {
     const { stdout } = await execFileAsync('powershell.exe', args, { timeout: 12000, windowsHide: true });
     const attachedHandle = stdout.match(/MOBIDESK_HWND=([0-9a-f]+)/i)?.[1];
     const aspect = Number(stdout.match(/MOBIDESK_ASPECT=([0-9.]+)/i)?.[1]);
+    const sourceWidth = Number(stdout.match(/MOBIDESK_WIDTH=(\d+)/i)?.[1]);
+    const sourceHeight = Number(stdout.match(/MOBIDESK_HEIGHT=(\d+)/i)?.[1]);
     if (attachedHandle) mirrorWindowHandles.set(serial, attachedHandle);
     if (!savedAspect && Number.isFinite(aspect) && aspect > 0.2 && aspect < 4) mirrorWindowAspects.set(serial, aspect);
+    if (!savedDimensions && Number.isInteger(sourceWidth) && sourceWidth > 0 && sourceWidth <= 12000 && Number.isInteger(sourceHeight) && sourceHeight > 0 && sourceHeight <= 12000) {
+      mirrorWindowDimensions.set(serial, { width: sourceWidth, height: sourceHeight });
+    }
+    if (mirrorStates.get(serial)?.state !== 'connected') {
+      mirrorReconnectAttempts.delete(serial);
+      sendMirrorState(serial, { state: 'connected', message: 'Mirror connected.' });
+    }
     return { ok: true, waiting: false, aspect: mirrorWindowAspects.get(serial) || 9 / 19 };
   } catch (error) {
     const code = Number(error.code);
@@ -380,13 +511,28 @@ ipcMain.handle('device:mirror-embed', async (event, serial, bounds) => {
 ipcMain.handle('device:mirror-fit-window', async (event, serial, aspect) => {
   const host = BrowserWindow.fromWebContents(event.sender);
   if (!validSerial(serial) || !host || host.isDestroyed() || mirrorControlWindows.get(serial) !== host || !Number.isFinite(aspect) || aspect < 0.2 || aspect > 4) return { ok: false };
-  const workArea = screen.getDisplayMatching(host.getBounds()).workAreaSize;
-  const horizontalChrome = 91;
-  const verticalChrome = 10;
-  const preferredHeight = host.getContentSize()[1] - verticalChrome;
-  const screenHeight = Math.max(334, Math.min(620, workArea.height - verticalChrome, preferredHeight > 334 ? preferredHeight : 620, (workArea.width - horizontalChrome) / aspect));
-  const width = Math.max(300, Math.ceil(screenHeight * aspect + horizontalChrome));
-  const height = Math.ceil(screenHeight + verticalChrome);
+  const display = screen.getDisplayMatching(host.getBounds());
+  const workArea = display.workAreaSize;
+  const sourceDimensions = mirrorWindowDimensions.get(serial);
+  let width;
+  let height;
+  if (sourceDimensions) {
+    const scaleFactor = display.scaleFactor || 1;
+    const sourceWidth = sourceDimensions.width / scaleFactor;
+    const sourceHeight = sourceDimensions.height / scaleFactor;
+    const scale = Math.min(1, workArea.width / sourceWidth, workArea.height / sourceHeight);
+    width = Math.floor(sourceWidth * scale);
+    height = Math.floor(sourceHeight * scale);
+  } else {
+    const horizontalChrome = 91;
+    const verticalChrome = 10;
+    const preferredHeight = host.getContentSize()[1] - verticalChrome;
+    const screenHeight = Math.max(334, Math.min(620, workArea.height - verticalChrome, preferredHeight > 334 ? preferredHeight : 620, (workArea.width - horizontalChrome) / aspect));
+    width = Math.max(300, Math.ceil(screenHeight * aspect + horizontalChrome));
+    height = Math.ceil(screenHeight + verticalChrome);
+  }
+  width = Math.max(300, width);
+  height = Math.max(334, height);
   host.setMinimumSize(Math.min(width, 300), 334);
   host.setMaximumSize(workArea.width, workArea.height);
   host.setAspectRatio(width / height);

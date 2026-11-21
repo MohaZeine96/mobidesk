@@ -2,6 +2,8 @@ param(
   [Parameter(Mandatory=$true)][string]$WindowTitle,
   [string]$ChildHandle,
   [double]$AspectRatio = 0,
+  [int]$SourceWidth = 0,
+  [int]$SourceHeight = 0,
   [Parameter(Mandatory=$true)][uint32]$ScrcpyProcessId,
   [Parameter(Mandatory=$true)][string]$ParentHandle,
   [Parameter(Mandatory=$true)][int]$X,
@@ -58,6 +60,8 @@ public static class MobiDeskWindowHost {
   [DllImport("user32.dll", SetLastError=true)]
   public static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
   [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+  [DllImport("user32.dll", SetLastError=true)]
   public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
   public static void FocusWindow(IntPtr hwnd, IntPtr parent) {
     uint processId;
@@ -88,15 +92,29 @@ $parentValue = [Convert]::ToInt64($ParentHandle, 16)
 $parent = [IntPtr]::new($parentValue)
 if ($parent -eq [IntPtr]::Zero) { throw 'MobiDesk window handle was empty.' }
 $alreadyAttached = [MobiDeskWindowHost]::GetParent($child) -eq $parent
+$sourceWidth = 0
+$sourceHeight = 0
+$client = New-Object MobiDeskWindowHost+RECT
+if ($SourceWidth -gt 0 -and $SourceHeight -gt 0) {
+  $sourceWidth = $SourceWidth
+  $sourceHeight = $SourceHeight
+}
+else {
+  $sourceWindow = New-Object MobiDeskWindowHost+RECT
+  if ([MobiDeskWindowHost]::GetWindowRect($child, [ref]$sourceWindow)) {
+    $sourceWidth = $sourceWindow.Right - $sourceWindow.Left
+    $sourceHeight = $sourceWindow.Bottom - $sourceWindow.Top
+  }
+}
 if ($AspectRatio -gt 0.2 -and $AspectRatio -lt 4) { $aspect = $AspectRatio }
 else {
-  $client = New-Object MobiDeskWindowHost+RECT
   if ([MobiDeskWindowHost]::GetClientRect($child, [ref]$client)) {
-    $sourceWidth = $client.Right - $client.Left
-    $sourceHeight = $client.Bottom - $client.Top
-  } else { $sourceWidth = 9; $sourceHeight = 19 }
-  if ($sourceWidth -lt 1 -or $sourceHeight -lt 1) { $sourceWidth = 9; $sourceHeight = 19 }
-  $aspect = [double]$sourceWidth / [double]$sourceHeight
+    $clientWidth = $client.Right - $client.Left
+    $clientHeight = $client.Bottom - $client.Top
+  } else { $clientWidth = 0; $clientHeight = 0 }
+  if ($clientWidth -gt 0 -and $clientHeight -gt 0) { $aspect = [double]$clientWidth / [double]$clientHeight }
+  elseif ($sourceWidth -gt 0 -and $sourceHeight -gt 0) { $aspect = [double]$sourceWidth / [double]$sourceHeight }
+  else { $aspect = 9.0 / 19.0 }
 }
 if (-not $alreadyAttached) {
   [void][MobiDeskWindowHost]::ShowWindow($child, 0)
@@ -114,3 +132,5 @@ if ($region -ne [IntPtr]::Zero -and [MobiDeskWindowHost]::SetWindowRgn($child, $
 if (-not $alreadyAttached) { [MobiDeskWindowHost]::FocusWindow($child, $parent) }
 Write-Output ('MOBIDESK_HWND=' + $child.ToInt64().ToString('x'))
 Write-Output ('MOBIDESK_ASPECT=' + $aspect.ToString([Globalization.CultureInfo]::InvariantCulture))
+Write-Output ('MOBIDESK_WIDTH=' + $sourceWidth)
+Write-Output ('MOBIDESK_HEIGHT=' + $sourceHeight)

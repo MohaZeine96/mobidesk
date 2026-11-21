@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('mobiDesk', {
   toolStatus: () => ipcRenderer.invoke('tools:status'),
   mirror: serial => ipcRenderer.invoke('device:mirror', serial),
   mirrorAction: (serial, action) => ipcRenderer.invoke('device:mirror-action', serial, action),
+  onMirrorState: callback => ipcRenderer.on('device:mirror-state', (_event, state) => callback(state)),
   embedMirror: (serial, bounds) => ipcRenderer.invoke('device:mirror-embed', serial, bounds),
   typeMirrorText: (serial, text) => ipcRenderer.invoke('device:keyboard-type', serial, text),
   pressMirrorKey: (serial, key) => ipcRenderer.invoke('device:keyboard-key', serial, key),

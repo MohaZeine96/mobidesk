@@ -7,9 +7,12 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis",
-    "dist:dir": "electron-builder --win dir",
-    "dist:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\make-portable.ps1"
+    "build": "electron-builder --win nsis",
+    "build:dir": "electron-builder --win dir",
+    "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\make-portable.ps1",
+    "dist": "npm run build",
+    "dist:dir": "npm run build:dir",
+    "dist:portable": "npm run build:portable"
   },
   "devDependencies": {
     "electron": "^45.3.4",

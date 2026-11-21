@@ -11,13 +11,15 @@ npm install
 npm start
 ```
 
-## Build a Windows installer
+## Build for Windows
 
 ```powershell
-npm run dist
+npm run build
+npm run build:dir
+npm run build:portable
 ```
 
-The installer is written to `release/`.
+`build` creates the Windows installer, `build:dir` creates an unpacked app folder, and `build:portable` creates a portable ZIP bundle. Outputs are written to `release/`. The `dist`, `dist:dir`, and `dist:portable` commands remain available as aliases.
 
 ## Android tools
 
@@ -43,4 +45,4 @@ Open any text message in the slide-out details panel to read its full text, send
 The navigation sidebar stays fixed beside the app content while you scroll. The Windows app icon uses the MobiDesk phone logo.
 
 
-The Mirror workspace opens a single mirror window with the scrcpy screen embedded beside the phone controls. Drag files onto the phone screen to copy them to Android's Downloads folder; dropping an APK installs it. Use the file button to choose between importing files or folders. When a selected file is an APK, MobiDesk asks whether to install it or copy it to Downloads. The rail shows the current item and completed count during imports. The icon rail also includes Back, Recent apps, Vibrate, screenshot, video capture, minimize, and close. Hover over an icon to see its tooltip.
+The Mirror workspace opens a single mirror window sized from scrcpy's original window dimensions, scaling down only when needed to fit the display. The scrcpy screen is embedded beside the phone controls within that same window. Use the audio control to switch playback between the PC and the phone; changing the output restarts scrcpy. If scrcpy stops, MobiDesk retries automatically; click the refresh icon in the control rail to reconnect manually. Drag files onto the phone screen to copy them to Android's Downloads folder; dropping an APK installs it. Use the file button to choose between importing files or folders. When a selected file is an APK, MobiDesk asks whether to install it or copy it to Downloads. The rail shows the current item and completed count during imports. The icon rail also includes Back, Recent apps, Vibrate, screenshot, video capture, minimize, and close. Hover over an icon to see its tooltip.
