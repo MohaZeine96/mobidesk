@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('mobiDesk', {
   foregroundApp: serial => ipcRenderer.invoke('device:foreground-app', serial),
   keyboardState: serial => ipcRenderer.invoke('device:keyboard-state', serial),
   transferFiles: serial => ipcRenderer.invoke('device:files', serial),
+  onFileTransferProgress: callback => ipcRenderer.on('device:file-transfer-progress', (_event, progress) => callback(progress)),
   listApps: serial => ipcRenderer.invoke('device:apps', serial),
   installApp: serial => ipcRenderer.invoke('device:app-install', serial),
   uninstallApp: (serial, packageName) => ipcRenderer.invoke('device:app-uninstall', serial, packageName),

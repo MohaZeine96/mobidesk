@@ -200,7 +200,7 @@ ipcMain.handle('device:mirror', async (_event, serial) => {
   if (!scrcpy) return { ok: false, message: 'scrcpy was not found. Install scrcpy and add it to PATH, then try again.' };
   const title = `MobiDesk Mirror - ${serial}`;
   mirrorWindowTitles.set(serial, { title });
-  const args = ['--serial', serial, '--window-title', title, '--no-window-aspect-ratio-lock', '--render-fit=letterbox', '--keyboard=uhid'];
+  const args = ['--serial', serial, '--window-title', title, '--no-window-aspect-ratio-lock', '--render-fit=letterbox', '--keyboard=uhid', '--push-target=/sdcard/Download'];
   const child = spawn(scrcpy, args, { windowsHide: true, stdio: 'ignore' });
   mirrorProcesses.set(serial, child);
   openMirrorControlWindow(serial);
@@ -421,17 +421,70 @@ ipcMain.handle('device:foreground-app', async (_event, serial) => {
     return { ok: true, packageName, activity, label: packageName, aspect };
   } catch (error) { return { ok: false, message: error.stderr?.trim() || error.message }; }
 });
-ipcMain.handle('device:files', async (_event, serial) => {
+ipcMain.handle('device:files', async (event, serial) => {
+  if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.' };
   const adb = await resolveTool('adb');
   if (!adb) return { ok: false, message: 'ADB is unavailable.' };
-  const { canceled, filePaths } = await dialog.showOpenDialog(win, { title: 'Choose files to copy to Android', properties: ['openFile', 'openDirectory', 'multiSelections'] });
+  const dialogWindow = BrowserWindow.fromWebContents(event.sender) || win;
+  const choice = await dialog.showMessageBox(dialogWindow, {
+    type: 'question',
+    message: 'What would you like to import?',
+    detail: 'Choose files or a folder to copy to Android.',
+    buttons: ['Choose files', 'Choose folder', 'Cancel'],
+    defaultId: 0,
+    cancelId: 2,
+    noLink: true
+  });
+  if (choice.response === 2) return { ok: false, canceled: true };
+  const isFolder = choice.response === 1;
+  const { canceled, filePaths } = await dialog.showOpenDialog(dialogWindow, {
+    title: isFolder ? 'Choose folders to copy to Android' : 'Choose files to copy to Android',
+    properties: isFolder ? ['openDirectory', 'multiSelections'] : ['openFile', 'multiSelections']
+  });
   if (canceled || !filePaths.length) return { ok: false, canceled: true };
-  let sent = 0;
-  for (const file of filePaths) {
-    try { await run(adb, ['-s', serial, 'push', file, '/sdcard/Download/'], 120000); sent++; }
-    catch (e) { return { ok: false, message: `Transfer stopped: ${e.message}`, sent }; }
+  const sendProgress = update => {
+    if (!event.sender.isDestroyed()) event.sender.send('device:file-transfer-progress', update);
+  };
+  let copied = 0;
+  let installed = 0;
+  for (const [index, file] of filePaths.entries()) {
+    const item = index + 1;
+    const name = path.basename(file);
+    let installApk = false;
+    if (!isFolder && path.extname(file).toLowerCase() === '.apk') {
+      const answer = await dialog.showMessageBox(dialogWindow, {
+        type: 'question',
+        message: 'This file is an APK. Would you like to install it?',
+        detail: `${name} can also be copied to Downloads without installing.`,
+        buttons: ['Install APK', 'Copy to Downloads'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true
+      });
+      installApk = answer.response === 0;
+    }
+    const operation = installApk ? 'install' : 'copy';
+    sendProgress({ state: 'transferring', item, total: filePaths.length, completed: copied + installed, name, operation });
+    try {
+      if (installApk) {
+        await run(adb, ['-s', serial, 'install', '-r', file], 180000);
+        installed++;
+      } else {
+        await run(adb, ['-s', serial, 'push', file, '/sdcard/Download/'], 120000);
+        copied++;
+      }
+      sendProgress({ state: 'item-complete', item, total: filePaths.length, completed: copied + installed, name, operation });
+    } catch (error) {
+      const message = error.stderr?.trim() || error.stdout?.trim() || error.message;
+      sendProgress({ state: 'error', item, total: filePaths.length, completed: copied + installed, name, operation, message });
+      return { ok: false, message: `Import stopped: ${message}`, copied, installed };
+    }
   }
-  return { ok: true, message: `${sent} item${sent === 1 ? '' : 's'} copied to Downloads.` };
+  sendProgress({ state: 'complete', total: filePaths.length, completed: copied + installed });
+  const summary = [];
+  if (copied) summary.push(`${copied} item${copied === 1 ? '' : 's'} copied to Downloads`);
+  if (installed) summary.push(`${installed} APK${installed === 1 ? '' : 's'} installed`);
+  return { ok: true, message: `${summary.join('; ')}.` };
 });
 ipcMain.handle('device:apps', async (_event, serial) => {
   const adb = await resolveTool('adb');

@@ -14,7 +14,18 @@
     .screen-shell::after{content:"";position:absolute;z-index:6;right:-5px;top:112px;width:4px;height:58px;border-radius:0 3px 3px 0;background:linear-gradient(90deg,#596273,#242a34);box-shadow:1px 2px 4px #0008}
     .screen{inset:11px;border-radius:25px;overflow:hidden}
     .empty{inset:11px;border-radius:25px}
-    html,body,.app,.stage,.screen-area{background:transparent}.app{grid-template-rows:minmax(0,1fr)}.stage{padding:5px;grid-template-columns:minmax(0,1fr) 76px;gap:5px;-webkit-app-region:drag}.screen-area,.screen{-webkit-app-region:no-drag}.screen-shell{-webkit-app-region:drag}.screen-shell::before,.screen-shell::after{display:none}.screen-shell{border:2px solid #73809866;border-radius:22px;box-shadow:0 10px 28px #02061155,0 0 0 1px #ffffff12}.screen{inset:5px;border-radius:16px}.empty{inset:5px;border-radius:16px}.active-app{flex:none;color:#9aabc5}.home-control{color:#aebdf0}.rail{height:100%;gap:4px;padding:4px 8px;border:1px solid #34415a;border-radius:18px;background:#142137cc;box-shadow:0 10px 24px #02061155;overflow:visible;scrollbar-width:none;-webkit-app-region:no-drag}.rail::-webkit-scrollbar{display:none}.control{width:40px;height:40px;-webkit-app-region:no-drag}.control.keyboard-visible{color:#aebdf0;border-color:#536895;background:#21324c}.pc-keyboard-input{position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;resize:none;-webkit-app-region:no-drag}.close{margin-top:0}.control:hover:after{position:fixed;right:auto;left:var(--tip-x,50%);top:var(--tip-y,0px);bottom:auto;transform:translateX(-50%);z-index:9999}.mirror-toast{position:absolute;z-index:7;left:14px;bottom:14px;max-width:calc(100% - 28px);padding:8px 11px;border:1px solid #46566f;border-radius:9px;background:#101a2beF;color:#dbe5f7;font-size:11px;line-height:1.4;box-shadow:0 6px 22px #02061177;opacity:0;transform:translateY(4px);transition:opacity .16s,transform .16s;pointer-events:none}.mirror-toast.visible{opacity:1;transform:translateY(0)}@media(max-height:580px){.rail{gap:3px;padding:4px 8px}.control{height:32px;min-height:32px}.divider{margin:0}}
+    html,body,.app,.stage,.screen-area{background:transparent}.app{grid-template-rows:minmax(0,1fr)}.stage{padding:5px;grid-template-columns:minmax(0,1fr) 76px;gap:5px;-webkit-app-region:drag}.screen-area,.screen{-webkit-app-region:no-drag}.screen-shell{-webkit-app-region:drag}.screen-shell::before,.screen-shell::after{display:none}.screen-shell{border:2px solid #73809866;border-radius:22px;box-shadow:0 10px 28px #02061155,0 0 0 1px #ffffff12}.screen{inset:5px;border-radius:16px}.empty{inset:5px;border-radius:16px}.active-app{flex:none;color:#9aabc5}.home-control{color:#aebdf0}.rail{height:100%;gap:4px;padding:4px 8px;border:1px solid #34415a;border-radius:18px;background:#142137cc;box-shadow:0 10px 24px #02061155;overflow:visible;scrollbar-width:none;-webkit-app-region:no-drag}.rail::-webkit-scrollbar{display:none}.control{width:40px;height:40px;-webkit-app-region:no-drag}.control.keyboard-visible{color:#aebdf0;border-color:#536895;background:#21324c}.pc-keyboard-input{position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;resize:none;-webkit-app-region:no-drag}.close{margin-top:0}.control:hover:after{position:fixed;right:auto;left:var(--tip-x,50%);top:var(--tip-y,0px);bottom:auto;transform:translateX(-50%);z-index:9999}.mirror-toast{position:absolute;z-index:7;left:14px;bottom:14px;max-width:calc(100% - 28px);padding:8px 11px;border:1px solid #46566f;border-radius:9px;background:#101a2beF;color:#dbe5f7;font-size:11px;line-height:1.4;box-shadow:0 6px 22px #02061177;opacity:0;transform:translateY(4px);transition:opacity .16s,transform .16s;pointer-events:none}.mirror-toast.visible{opacity:1;transform:translateY(0)}@media(max-height:640px){.rail{gap:3px;padding:3px 8px}.control{height:36px;min-height:36px}.divider{margin:0}}@media(max-height:580px){.rail{gap:3px;padding:4px 8px}.control{height:32px;min-height:32px}.divider{margin:0}}
+  </style>
+  <style>
+    .file-transfer-progress{width:58px;display:grid;justify-items:center;gap:3px;color:#aebee0;font-size:8px;line-height:1}
+    .file-transfer-progress[hidden]{display:none}
+    .file-transfer-name{width:58px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+    .file-transfer-track{width:52px;height:4px;overflow:hidden;border-radius:4px;background:#33435b}
+    .file-transfer-track span{display:block;width:40%;height:100%;border-radius:4px;background:#7288ff}
+    .file-transfer-track[data-state="transferring"] span{animation:file-transfer-progress 1.1s ease-in-out infinite}
+    .file-transfer-track[data-state="item-complete"] span,.file-transfer-track[data-state="complete"] span{width:100%;animation:none}
+    .file-transfer-track[data-state="error"] span{width:100%;background:#ff8c87;animation:none}
+    @keyframes file-transfer-progress{from{transform:translateX(-120%)}to{transform:translateX(260%)}}
   </style>
 </head>
 <body>
@@ -37,6 +48,8 @@
         <button class="control" data-action="volume-down" data-tooltip="Volume down" title="Volume down" aria-label="Volume down"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M4 10v4h3l5 4V6l-5 4zM16 9a5 5 0 0 1 0 6M18 6a9 9 0 0 1 0 12M16 18h6"/></svg></span></button>
         <button class="control power-control" data-action="power" data-tooltip="Power button" title="Power button" aria-label="Power button"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M7 5.8a9 9 0 1 0 10 0"/></svg></span></button>
         <span class="divider"></span>
+        <button class="control" data-action="files" data-tooltip="Import files" title="Import files" aria-label="Import files"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2h5.5A2.5 2.5 0 0 1 20 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z"/><path d="M12 17V10m-3 3 3-3 3 3"/></svg></span></button>
+        <div id="fileTransferProgress" class="file-transfer-progress" role="status" aria-live="polite" hidden><span id="fileTransferName" class="file-transfer-name"></span><div id="fileTransferTrack" class="file-transfer-track"><span></span></div><span id="fileTransferDetail"></span></div>
         <button class="control" data-action="screenshot" data-tooltip="Take screenshot" title="Take screenshot" aria-label="Take screenshot"><span class="glyph"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.2"/></svg></span></button>
         <button class="control record" id="record" data-action="record-start" data-tooltip="Capture video" title="Capture video" aria-label="Capture video"><span class="glyph"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/></svg></span></button>
       </aside>
@@ -53,10 +66,17 @@
     const record=document.getElementById('record');
     const activeApp=document.getElementById('activeApp');
     const pcKeyboardInput=document.getElementById('pcKeyboardInput');
+    const fileTransferProgress=document.getElementById('fileTransferProgress');
+    const fileTransferName=document.getElementById('fileTransferName');
+    const fileTransferTrack=document.getElementById('fileTransferTrack');
+    const fileTransferDetail=document.getElementById('fileTransferDetail');
     let busy=false, attaching=false, attachAgain=false, attached=false, windowFitRequested=false, deviceAspect=9/19, retryTimer=0, resizeTimer=0;
     function fitFrame(){const area=screenArea.getBoundingClientRect(),bezel=10;if(area.width<=bezel||area.height<=bezel)return;let screenWidth=area.width-bezel,screenHeight=screenWidth/deviceAspect;if(screenHeight>area.height-bezel){screenHeight=area.height-bezel;screenWidth=screenHeight*deviceAspect;}screenShell.style.width=`${Math.round(screenWidth+bezel)}px`;screenShell.style.height=`${Math.round(screenHeight+bezel)}px`;}
     let statusTimer=0;
     function setStatus(message,connected=attached){status.textContent=message;status.classList.add('visible');clearTimeout(statusTimer);if(connected||message!=='Connecting to scrcpy…')statusTimer=setTimeout(()=>status.classList.remove('visible'),2600);}
+    let fileTransferHideTimer=0;
+    function showFileTransferProgress(update){if(!update)return;clearTimeout(fileTransferHideTimer);fileTransferProgress.hidden=false;fileTransferTrack.dataset.state=update.state;fileTransferName.textContent=update.name||(update.state==='error'?'Transfer failed':update.state==='complete'?'Transfer complete':'Preparing transfer…');fileTransferName.title=update.message||update.name||'';const count=update.state==='transferring'?update.item:update.completed;fileTransferDetail.textContent=update.state==='transferring'?`${update.operation==='install'?'Install':'Copy'} ${count}/${update.total}`:update.state==='error'?`Failed · ${update.item}/${update.total}`:`${count}/${update.total}`;if(update.state==='complete'||update.state==='error')fileTransferHideTimer=setTimeout(()=>{fileTransferProgress.hidden=true;},3000);}
+    if(api&&serial)api.onFileTransferProgress(showFileTransferProgress);
     function setRecording(active){const label=active?'Stop capture and save video':'Capture video';record.dataset.action=active?'record-stop':'record-start';record.dataset.tooltip=label;record.title=label;record.setAttribute('aria-label',label);record.classList.toggle('recording',active);record.innerHTML=`<span class="glyph"><svg viewBox="0 0 24 24">${active?'<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>':'<circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/>'}</svg></span>`;}
     let appPollBusy=false;
     async function refreshActiveApp(){if(appPollBusy||!api||!serial)return;appPollBusy=true;try{const result=await api.foregroundApp(serial);if(result.ok){const name=result.label||'No active app detected';activeApp.dataset.tooltip=`Active app: ${name}`;activeApp.title=result.activity?`${result.packageName}/${result.activity}`:name;if(attached&&windowFitRequested&&Number.isFinite(result.aspect)&&result.aspect>0.2&&result.aspect<4&&Math.abs(deviceAspect-result.aspect)>0.01){const fitted=await api.fitMirrorWindow(serial,result.aspect);if(fitted.ok){deviceAspect=result.aspect;fitFrame();}}}}catch{}finally{appPollBusy=false;}}
@@ -93,11 +113,11 @@
       const action=button.dataset.action;
       busy=true;document.querySelectorAll('.control').forEach(item=>item.disabled=true);setStatus(action==='record-stop'?'Stopping capture and saving video…':'Working…');
       try{
-        const result=await api.mirrorAction(serial,action);
+        const result=action==='files'?await api.transferFiles(serial):await api.mirrorAction(serial,action);
         if(action==='keyboard-toggle'){if(result.ok)setTouchKeyboardVisible(result.visible);pcKeyboardEnabled=true;pcKeyboardInput.focus();setStatus(result.ok?'PC typing is ready. Focus a text field on the phone, then type.':result.message||'PC typing is ready. Focus a text field on the phone, then type.');}
         if(action==='record-start'&&result.ok)setRecording(true);
         if(action==='record-stop'&&(result.ok||result.canceled))setRecording(false);
-        if(result.canceled){setStatus('Capture stopped. The save dialog was canceled; the video remains on the phone.');return;}
+        if(result.canceled){setStatus(action==='files'?'File selection canceled.':'Capture stopped. The save dialog was canceled; the video remains on the phone.');return;}
         if(action!=='minimize'&&action!=='close'&&action!=='keyboard-toggle')setStatus(result.message||(result.ok?'Done.':'Action failed.'));
         if(action==='close'&&result.ok)window.close();
       }catch(error){setStatus(error.message||'The mirror action failed.');}

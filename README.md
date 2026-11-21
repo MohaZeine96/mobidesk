@@ -43,4 +43,4 @@ Open any text message in the slide-out details panel to read its full text, send
 The navigation sidebar stays fixed beside the app content while you scroll. The Windows app icon uses the MobiDesk phone logo.
 
 
-The Mirror workspace opens a single mirror window with the scrcpy screen embedded beside the phone controls. Use Back, Recent apps, Vibrate, screenshot, video capture, minimize, or close from the icon rail on the right. Hover over an icon to see its tooltip.
+The Mirror workspace opens a single mirror window with the scrcpy screen embedded beside the phone controls. Drag files onto the phone screen to copy them to Android's Downloads folder; dropping an APK installs it. Use the file button to choose between importing files or folders. When a selected file is an APK, MobiDesk asks whether to install it or copy it to Downloads. The rail shows the current item and completed count during imports. The icon rail also includes Back, Recent apps, Vibrate, screenshot, video capture, minimize, and close. Hover over an icon to see its tooltip.
