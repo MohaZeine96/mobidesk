@@ -58,6 +58,70 @@ function androidPath(value) {
   return value.replace(/\/+/g, '/') || '/';
 }
 function contentRows(stdout) { return stdout.split(/\r?\n/).filter(line => /^Row:\s*\d+\s/.test(line)); }
+function diskStatsArray(stdout, label) {
+  const match = stdout.match(new RegExp(`^${label}:\\s*(\\[[^\\r\\n]*\\])\\s*$`, 'm'));
+  if (!match) return null;
+  const serialized = match[1];
+  try {
+    const value = JSON.parse(serialized);
+    return Array.isArray(value) ? value : null;
+  } catch {
+    const values = serialized.slice(1, -1).trim();
+    return values ? values.split(',').map(value => value.trim()) : [];
+  }
+}
+function parseDiskStatsApps(stdout) {
+  const packages = diskStatsArray(stdout, 'Package Names');
+  const codeSizes = diskStatsArray(stdout, 'App Sizes');
+  const dataSizes = diskStatsArray(stdout, 'App Data Sizes');
+  const cacheSizes = diskStatsArray(stdout, 'Cache Sizes');
+  if (!packages || !codeSizes || !dataSizes || !cacheSizes || packages.length !== codeSizes.length || packages.length !== dataSizes.length || packages.length !== cacheSizes.length) return null;
+  return packages.map((packageName, index) => {
+    const codeBytes = Number(codeSizes[index]);
+    const dataBytes = Number(dataSizes[index]);
+    const cacheBytes = Number(cacheSizes[index]);
+    if (typeof packageName !== 'string' || ![codeBytes, dataBytes, cacheBytes].every(value => Number.isFinite(value) && value >= 0)) return null;
+    return { packageName, codeBytes, dataBytes, cacheBytes, totalBytes: codeBytes + dataBytes + cacheBytes };
+  }).filter(Boolean).sort((a, b) => b.totalBytes - a.totalBytes);
+}
+function parseMediaFileUsage(stdout) {
+  const categories = { photos: 0, videos: 0, audio: 0, documents: 0, other: 0 };
+  for (const row of contentRows(stdout)) {
+    const size = Number((row.match(/\b_size=(\d+)/) || [])[1]);
+    if (!Number.isFinite(size) || size <= 0) continue;
+    const mime = ((row.match(/\bmime_type=([^,\r\n]*)/) || [])[1] || '').trim().toLowerCase();
+    if (mime.startsWith('image/')) categories.photos += size;
+    else if (mime.startsWith('video/')) categories.videos += size;
+    else if (mime.startsWith('audio/')) categories.audio += size;
+    else if (mime.startsWith('text/') || mime === 'application/pdf' || mime === 'application/rtf' || mime === 'application/msword' || mime === 'application/epub+zip' || mime.startsWith('application/vnd.openxmlformats-officedocument.') || mime.startsWith('application/vnd.oasis.opendocument.') || /^application\/vnd\.ms-(?:excel|word|powerpoint)/.test(mime)) categories.documents += size;
+    else categories.other += size;
+  }
+  return categories;
+}
+function notificationExtra(record, name) {
+  const marker = `${name}=`;
+  const start = record.indexOf(marker);
+  if (start < 0) return '';
+  const value = record.slice(start + marker.length);
+  const end = value.search(/,\s*android\.[\w.]+=|\r?\n\s*android\.[\w.]+=|\r?\n\s*\}|\}\]|\]\}/);
+  const text = (end < 0 ? value : value.slice(0, end)).trim();
+  const wrapped = text.match(/^String\s*\(([\s\S]*)\)$/);
+  return (wrapped ? wrapped[1] : text).slice(0, 5000);
+}
+function parseActiveNotifications(stdout) {
+  const starts = [...stdout.matchAll(/NotificationRecord\(/g)];
+  return starts.map((match, index) => {
+    const record = stdout.slice(match.index, starts[index + 1]?.index ?? stdout.length);
+    const packageName = (record.match(/\bpkg=([A-Za-z0-9._-]+)/) || [])[1];
+    if (!packageName) return null;
+    const title = notificationExtra(record, 'android.title') || notificationExtra(record, 'android.titleBig');
+    const text = notificationExtra(record, 'android.bigText') || notificationExtra(record, 'android.text') || notificationExtra(record, 'android.subText') || notificationExtra(record, 'android.summaryText');
+    const rawTime = Number((record.match(/\bpostTime=(\d+)/) || [])[1]);
+    const timestamp = Number.isFinite(rawTime) && rawTime > 0 ? rawTime : 0;
+    const key = (record.match(/\bkey=([^\r\n,]+)/) || [])[1]?.trim();
+    return { id: key || `${packageName}:${index}`, packageName, title, text, timestamp };
+  }).filter(Boolean).sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
+}
 
 function parseIpEndpoint(value) {
   if (typeof value !== 'string') return null;
@@ -651,6 +715,21 @@ ipcMain.handle('device:app-install', async (_event, serial) => {
     return { ok: true, message: stdout.trim() || 'App installed.' };
   } catch (error) { return { ok: false, message: error.stderr?.trim() || error.stdout?.trim() || error.message }; }
 });
+ipcMain.handle('device:open-samsung-notes', async (_event, serial) => {
+  if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.' };
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.' };
+  const packageName = 'com.samsung.android.app.notes';
+  try {
+    const installed = await run(adb, ['-s', serial, 'shell', 'pm', 'path', packageName], 10000);
+    if (!/^package:/m.test(installed.stdout)) return { ok: false, message: 'Samsung Notes is not installed on the selected device.' };
+    const { stdout, stderr } = await run(adb, ['-s', serial, 'shell', 'monkey', '-p', packageName, '1'], 20000);
+    if (/no activities found|monkey aborted/i.test(`${stdout}\n${stderr}`)) return { ok: false, message: 'Samsung Notes is installed, but Android could not launch it.' };
+    return { ok: true, message: 'Samsung Notes opened on the selected Android device.' };
+  } catch (error) {
+    return { ok: false, message: error.stderr?.trim() || error.stdout?.trim() || error.message };
+  }
+});
 ipcMain.handle('device:app-uninstall', async (_event, serial, packageName) => {
   if (!validSerial(serial) || typeof packageName !== 'string' || !/^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$/.test(packageName)) return { ok: false, message: 'Invalid device or app.' };
   const adb = await resolveTool('adb');
@@ -722,6 +801,20 @@ ipcMain.handle('device:messages', async (_event, serial) => {
     return { ok: true, messages: messages.slice(0, 500) };
   } catch (error) { return { ok: false, message: error.stderr?.trim() || error.stdout?.trim() || 'Android did not allow reading text messages.', messages: [] }; }
 });
+ipcMain.handle('device:notifications', async (_event, serial) => {
+  if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.', notifications: [] };
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.', notifications: [] };
+  try {
+    const { stdout } = await run(adb, ['-s', serial, 'shell', 'dumpsys', 'notification', '--noredact'], 15000, 16 * 1024 * 1024);
+    if (/permission denial|not allowed to dump|unknown (?:option|argument).*noredact/i.test(stdout)) {
+      return { ok: false, message: 'Android did not allow reading active notifications over ADB.', notifications: [] };
+    }
+    return { ok: true, notifications: parseActiveNotifications(stdout) };
+  } catch (error) {
+    return { ok: false, message: error.stderr?.trim() || error.stdout?.trim() || 'Android did not allow reading active notifications over ADB.', notifications: [] };
+  }
+});
 ipcMain.handle('device:files-list', async (_event, serial, requestedPath) => {
   if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.', entries: [] };
   const folder = androidPath(requestedPath);
@@ -772,6 +865,38 @@ ipcMain.handle('device:storage', async (_event, serial) => {
   } catch (error) {
     return { ok: false, message: error.stderr?.trim() || error.message || 'Could not read device storage.', internal: null, sdCard: null };
   }
+});
+ipcMain.handle('device:storage-breakdown', async (_event, serial) => {
+  if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.', apps: [], categories: null };
+  const adb = await resolveTool('adb');
+  if (!adb) return { ok: false, message: 'ADB is unavailable.', apps: [], categories: null };
+  let apps = [];
+  let appError = '';
+  try {
+    const { stdout } = await run(adb, ['-s', serial, 'shell', 'dumpsys', 'diskstats'], 30000, 32 * 1024 * 1024);
+    apps = parseDiskStatsApps(stdout);
+    if (!apps) appError = 'Android did not return per-app storage statistics.';
+  } catch (error) {
+    appError = error.stderr?.trim() || error.stdout?.trim() || error.message;
+  }
+  let categories = null;
+  let categoryError = '';
+  try {
+    const { stdout } = await run(adb, ['-s', serial, 'shell', 'content', 'query', '--uri', 'content://media/external/file', '--projection', '_size:mime_type'], 45000, 32 * 1024 * 1024);
+    categories = parseMediaFileUsage(stdout);
+  } catch (error) {
+    categoryError = error.stderr?.trim() || error.stdout?.trim() || error.message;
+  }
+  const ok = !appError || !categoryError;
+  return {
+    ok,
+    message: ok ? '' : 'Android could not provide app or file-type storage statistics.',
+    apps: apps || [],
+    categories,
+    appError,
+    categoryError,
+    sampledAt: Date.now()
+  };
 });
 ipcMain.handle('device:file-preview', async (_event, serial, requestedPath, thumbnail = false) => {
   if (!validSerial(serial)) return { ok: false, message: 'Choose a connected device first.' };

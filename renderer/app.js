@@ -15,8 +15,11 @@
   const selectedFilePaths = new Set();
   let currentContacts = [];
   let currentMessages = [];
+  let notificationsLoading = false;
+  let storageBreakdownRequest = 0;
   let mirrorRecordingSerial = '';
   const storageCache = new Map();
+  const storageBreakdownCache = new Map();
   const $ = id => document.getElementById(id);
   const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   $('device-list').innerHTML = '';
@@ -35,11 +38,19 @@
   function createManagerWorkspace() {
     const appsNav = document.querySelector('.nav[data-page="apps"]');
     appsNav.insertAdjacentHTML('afterend', '<div class="nav" data-page="messages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v12H8l-4 4z"/><path d="M8 9h8M8 13h5"/></svg>Messages</div><div class="nav" data-page="contacts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1zM16 5a3 3 0 0 1 0 6m2 3a4 4 0 0 1 3 4v2h-4"/></svg>Contacts</div>');
+    document.querySelector('.nav[data-page="contacts"]').insertAdjacentHTML('afterend', '<div class="nav" data-page="notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>Notifications</div>');
     document.querySelectorAll('.nav[data-page="contacts"],.nav[data-page="messages"]').forEach(nav => nav.addEventListener('click', () => { navigate(nav.dataset.page); loadPersonalData(nav.dataset.page); }));
+    document.querySelector('.nav[data-page="notifications"]').addEventListener('click', () => { navigate('notifications'); loadNotifications(); });
+    const notificationBell = document.querySelector('.top-right .iconbtn[title="Notifications"]');
+    notificationBell.removeAttribute('onclick');
+    notificationBell.setAttribute('aria-label', 'View phone notifications');
+    const notificationDot = notificationBell.querySelector('.dot');
+    if (notificationDot) notificationDot.hidden = true;
+    notificationBell.addEventListener('click', () => { navigate('notifications'); loadNotifications(); });
     document.querySelector('.nav[data-page="files"]').addEventListener('click', () => { renderFilesRoot(); loadStorage($('fileDevice').value, true); });
     document.querySelector('.nav[data-page="apps"]').addEventListener('click', () => loadApps());
     $('files').querySelector('.card.panel').innerHTML = '<div class="panel-title"><h2 id="filesHeading">Device storage</h2><span class="textlink" id="filesSubheading">Choose a storage location</span></div><div class="storage-grid files-storage-grid" id="filesStorageCards"></div><div class="files-toolbar"><select id="fileDevice" class="field"></select><button class="btn secondary" id="refreshFiles">Refresh</button><button class="btn primary" id="uploadFiles">＋ Import files / folders</button></div><div class="file-pathbar" id="filePathbar"><button class="btn secondary" id="fileRoot" title="Return to storage locations">Storage</button><button class="btn secondary" id="fileUp" title="Go up one folder">↑</button><input class="field" id="filePath" value="/sdcard" aria-label="Android folder path"><button class="btn secondary" id="fileGo">Go</button></div><div class="file-controls"><label class="filter-label">Show<select id="fileFilter" class="field" aria-label="Filter files"><option value="all">All types</option><option value="photos">Pictures</option><option value="audio">Audio</option><option value="documents">Documents</option><option value="videos">Videos</option></select></label><div class="view-toggle"><button class="btn secondary active" data-file-view="list">☰ &nbsp;List</button><button class="btn secondary" data-file-view="grid">▦ &nbsp;Grid</button></div></div><div class="file-selection-bar" id="fileSelectionBar"><span id="fileSelectionCount">0 selected</span><button class="btn secondary" id="exportSelected" disabled>↓ Export selected</button><button class="btn danger" id="deleteSelected" disabled>Delete selected</button><button class="btn secondary" id="cancelSelection">Cancel</button></div><p class="sub files-hint">Long-press a file or folder to select it. Browse shared Android storage; protected folders may be unavailable.</p><div class="file-list" id="fileList"></div>';
-    $('apps').querySelector('.hello').insertAdjacentHTML('beforeend', '<button class="btn primary" id="installApk">＋ &nbsp;Install APK</button>');
+    $('apps').querySelector('.hello').insertAdjacentHTML('beforeend', '<div class="apps-header-actions"><button class="btn secondary" id="openSamsungNotes" title="Open Samsung Notes on the selected device">Open Samsung Notes</button><button class="btn primary" id="installApk">＋ &nbsp;Install APK</button></div>');
     $('apps').querySelector('.card.panel').innerHTML = '<div class="apps-toolbar"><select id="appDevice" class="field"></select><button class="btn secondary" id="refreshApps">Refresh apps</button></div><div class="app-list" id="appList"><div class="empty">Choose a connected device to view its apps.</div></div>';
     const statStorage = document.querySelector('.overview .stat:nth-child(2)');
     statStorage.querySelector('small').textContent = 'Internal capacity';
@@ -48,6 +59,8 @@
     statFree.querySelector('small').textContent = 'Free storage';
     statFree.querySelector('strong').id = 'statFree'; statFree.querySelector('strong').textContent = '—';
     document.querySelector('.overview').insertAdjacentHTML('afterend', '<div class="storage-section"><div class="section-head"><h2>Device storage</h2><span>Live capacity</span><select id="storageDevice" class="field storage-select"></select></div><div class="storage-grid" id="storageCards"><div class="card storage-card"><div class="empty">Connect a device to see its storage.</div></div></div></div>');
+    document.querySelector('.storage-section').insertAdjacentHTML('beforeend', '<div class="storage-breakdown-toolbar"><button class="btn secondary" id="storageBreakdownButton">Show app and file-type usage</button><span id="storageBreakdownStatus">See space used by apps, photos, videos, audio, documents, and other files.</span></div><div class="storage-breakdown-grid" id="storageBreakdown" hidden><article class="card storage-breakdown-card"><div class="storage-breakdown-title"><h3>Shared files by type</h3><small>Android MediaStore index</small></div><div id="storageCategoryUsage" class="storage-usage-list"></div></article><article class="card storage-breakdown-card"><div class="storage-breakdown-title"><h3>Apps by storage</h3><small>App, data, and cache</small></div><div id="storageAppUsage" class="storage-app-list"></div></article></div>');
+    $('storageBreakdownButton').addEventListener('click', () => loadStorageBreakdown($('storageDevice').value, true));
     const activityPanel = document.querySelector('.lower .card.panel:first-child');
     activityPanel.innerHTML = '<div class="panel-title"><h2>Device snapshot</h2><span class="textlink">Live device data</span></div><div id="deviceSnapshot" class="snapshot-empty">Connect a phone or tablet to load device details.</div>';
     const mirrorButton = document.querySelector('.mirror-panel .startmirror');
@@ -57,6 +70,9 @@
     mirrorPanel.addEventListener('click', event => { const button = event.target.closest('[data-mirror-action]'); if (button) runMirrorAction(button.dataset.mirrorAction); });
     const content = document.querySelector('.content');
     content.insertAdjacentHTML('beforeend', '<section class="view" id="contacts"><div class="hello"><div><p class="eyebrow">PEOPLE</p><h1>Contacts</h1><p class="sub">View phone numbers, and import or export contacts.</p></div></div><div class="card panel"><div class="data-toolbar"><select id="contactsDevice" class="field"></select><input id="contactSearch" class="field" placeholder="Search contacts or numbers"><button class="btn primary" id="loadContacts">Load contacts</button><button class="btn secondary" id="importContacts">Import vCard</button><button class="btn secondary" id="exportContacts">Export CSV</button></div><div class="data-list" id="contactsList"><div class="empty">Select a device to view its contacts.</div></div></div></section><section class="view" id="messages"><div class="hello"><div><p class="eyebrow">TEXT MESSAGES</p><h1>Messages</h1><p class="sub">Read SMS messages on a connected Android device.</p></div></div><div class="card panel"><div class="data-toolbar"><select id="messagesDevice" class="field"></select><input id="messageSearch" class="field" placeholder="Search messages or numbers"><button class="btn primary" id="loadMessages">Load messages</button></div><div class="data-list" id="messagesList"><div class="empty">Select a device to view its messages.</div></div></div></section>');
+    content.insertAdjacentHTML('beforeend', '<section class="view" id="notifications"><div class="hello"><div><p class="eyebrow">DEVICE ALERTS</p><h1>Notifications</h1><p class="sub">Active notifications from your Android device. Content stays on this PC.</p></div></div><div class="card panel"><div class="data-toolbar"><select id="notificationsDevice" class="field" aria-label="Android device"></select><button class="btn secondary" id="refreshNotifications">Refresh</button></div><div class="data-list" id="notificationsList" aria-live="polite"><div class="empty">Choose a connected device to view its notifications.</div></div></div></section>');
+    $('refreshNotifications').addEventListener('click', () => loadNotifications());
+    $('notificationsDevice').addEventListener('change', () => loadNotifications());
     document.body.insertAdjacentHTML('beforeend', '<div class="message-drawer-wrap" id="messageDrawer"><aside class="message-drawer" role="dialog" aria-modal="true" aria-labelledby="messageDrawerTitle"><div class="message-drawer-head"><div><p class="eyebrow">TEXT MESSAGE</p><h2 id="messageDrawerTitle">Message details</h2></div><button class="close" id="closeMessageDrawer" aria-label="Close message">×</button></div><div id="messageDrawerContent"></div></aside></div>');
     $('messageDrawer').addEventListener('click', event => { if (event.target === $('messageDrawer')) closeMessageDrawer(); });
     $('closeMessageDrawer').addEventListener('click', closeMessageDrawer);
@@ -64,7 +80,7 @@
     document.body.insertAdjacentHTML('beforeend', '<div class="modal-wrap media-preview-wrap" id="mediaPreview"></div>');
     $('mediaPreview').addEventListener('click', event => { if (event.target === $('mediaPreview')) { $('mediaPreview').classList.remove('show'); $('mediaPreview').innerHTML = ''; } });
     $('fileDevice').addEventListener('change', () => { currentFilePath = '/sdcard'; atStorageRoot = true; storageCache.delete($('fileDevice').value); loadStorage($('fileDevice').value, true); renderFilesRoot(); });
-    $('storageDevice').addEventListener('change', () => { loadStorage($('storageDevice').value, true); updateDeviceSnapshot(); });
+    $('storageDevice').addEventListener('change', () => { const serial = $('storageDevice').value; loadStorage(serial, true); updateDeviceSnapshot(); if (!$('storageBreakdown').hidden) loadStorageBreakdown(serial); });
     $('snapshotDevice')?.addEventListener('change', updateDeviceSnapshot);
     $('refreshFiles').addEventListener('click', () => { const serial = $('fileDevice').value; storageCache.delete(serial); if (atStorageRoot) loadStorage(serial, true); else loadFiles(); });
     $('fileGo').addEventListener('click', () => loadFiles($('filePath').value));
@@ -84,6 +100,7 @@
     document.querySelectorAll('[data-file-view]').forEach(button => button.addEventListener('click', () => { currentFileView = button.dataset.fileView; document.querySelectorAll('[data-file-view]').forEach(item => item.classList.toggle('active', item === button)); renderFileEntries(); }));
     $('appDevice').addEventListener('change', () => loadApps($('appDevice').value));
     $('refreshApps').addEventListener('click', () => loadApps($('appDevice').value));
+    $('openSamsungNotes').addEventListener('click', openSamsungNotes);
     $('installApk').addEventListener('click', installApk);
     $('loadContacts').addEventListener('click', () => loadPersonalData('contacts'));
     $('importContacts').addEventListener('click', importContacts);
@@ -159,6 +176,75 @@
     const result = await api.storageInfo(serial);
     storageCache.set(serial, result);
     applyStorageResult(result, serial);
+  }
+
+  async function loadStorageBreakdown(serial = $('storageDevice')?.value, force = false) {
+    const request = ++storageBreakdownRequest;
+    const breakdown = $('storageBreakdown');
+    const status = $('storageBreakdownStatus');
+    const button = $('storageBreakdownButton');
+    breakdown.hidden = false;
+    if (!serial) {
+      button.disabled = false;
+      status.textContent = 'Connect a device to view storage usage.';
+      $('storageCategoryUsage').innerHTML = '<div class="storage-breakdown-message">No device selected.</div>';
+      $('storageAppUsage').innerHTML = '<div class="storage-breakdown-message">No device selected.</div>';
+      return;
+    }
+    if (!force && storageBreakdownCache.has(serial)) {
+      button.disabled = false;
+      renderStorageBreakdown(storageBreakdownCache.get(serial));
+      return;
+    }
+    button.disabled = true;
+    status.textContent = 'Reading Android storage statistics…';
+    $('storageCategoryUsage').innerHTML = '<div class="storage-breakdown-message">Reading file types…</div>';
+    $('storageAppUsage').innerHTML = '<div class="storage-breakdown-message">Reading app sizes…</div>';
+    try {
+      const result = await api.storageBreakdown(serial);
+      storageBreakdownCache.set(serial, result);
+      if (request !== storageBreakdownRequest || $('storageDevice').value !== serial) return;
+      renderStorageBreakdown(result);
+    } catch (error) {
+      if (request !== storageBreakdownRequest) return;
+      status.textContent = error.message || 'Could not read storage usage.';
+      $('storageCategoryUsage').innerHTML = `<div class="storage-breakdown-message">${escapeHtml(status.textContent)}</div>`;
+      $('storageAppUsage').innerHTML = `<div class="storage-breakdown-message">${escapeHtml(status.textContent)}</div>`;
+    } finally {
+      if (request === storageBreakdownRequest) button.disabled = false;
+    }
+  }
+
+  function renderStorageBreakdown(result) {
+    const status = $('storageBreakdownStatus');
+    if (result.categories) {
+      const categories = [
+        ['Photos', result.categories.photos],
+        ['Videos', result.categories.videos],
+        ['Audio', result.categories.audio],
+        ['Documents', result.categories.documents],
+        ['Other files', result.categories.other]
+      ];
+      const total = categories.reduce((sum, [, bytes]) => sum + (Number.isFinite(bytes) ? bytes : 0), 0);
+      $('storageCategoryUsage').innerHTML = categories.map(([label, bytes]) => {
+        const value = Number.isFinite(bytes) ? bytes : 0;
+        const percent = total ? Math.round(value / total * 100) : 0;
+        return `<div class="storage-usage-row"><div class="storage-usage-head"><span>${label}</span><b>${formatBytes(value)}</b></div><div class="storage-usage-bar"><i style="width:${percent}%"></i></div></div>`;
+      }).join('');
+    } else {
+      $('storageCategoryUsage').innerHTML = `<div class="storage-breakdown-message">${escapeHtml(result.categoryError || result.message || 'File-type statistics are unavailable.')}</div>`;
+    }
+    if (result.apps?.length) {
+      const shownApps = result.apps.slice(0, 100);
+      $('storageAppUsage').innerHTML = shownApps.map(app => `<article class="storage-app-row"><div><b>${escapeHtml(app.packageName)}</b><small>App ${formatBytes(app.codeBytes)} · Data ${formatBytes(app.dataBytes)} · Cache ${formatBytes(app.cacheBytes)}</small></div><strong>${formatBytes(app.totalBytes)}</strong></article>`).join('') + (result.apps.length > shownApps.length ? `<div class="storage-breakdown-message">Showing the 100 largest apps out of ${result.apps.length}.</div>` : '');
+    } else {
+      $('storageAppUsage').innerHTML = `<div class="storage-breakdown-message">${escapeHtml(result.appError || result.message || 'Per-app statistics are unavailable.')}</div>`;
+    }
+    const errors = [result.appError, result.categoryError].filter(Boolean);
+    const statusParts = errors.slice();
+    if (Number.isFinite(result.sampledAt)) statusParts.push(`Read at ${new Date(result.sampledAt).toLocaleTimeString()}. Android statistics may be cached.`);
+    else if (result.message) statusParts.push(result.message);
+    status.textContent = statusParts.join(' · ') || 'Storage statistics loaded.';
   }
 
   function updateDeviceSnapshot() {
@@ -328,6 +414,21 @@
     if (!result.canceled) { notify(result.message || (result.ok ? 'App installed.' : 'Install failed.')); if (result.ok) loadApps(serial); }
   }
 
+  async function openSamsungNotes() {
+    const serial = $('appDevice').value;
+    if (!serial) { notify('Connect a phone or tablet first.'); return; }
+    const button = $('openSamsungNotes');
+    button.disabled = true;
+    try {
+      const result = await api.openSamsungNotes(serial);
+      notify(result.message || (result.ok ? 'Samsung Notes opened on the device.' : 'Could not open Samsung Notes.'));
+    } catch (error) {
+      notify(error.message || 'Could not open Samsung Notes.');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function loadPersonalData(section) {
     const contacts = section === 'contacts';
     const serial = $(`${section}Device`).value;
@@ -349,6 +450,39 @@
       list.querySelectorAll('[data-open-message]').forEach(button => button.addEventListener('click', () => openMessageAside(currentMessages[Number(button.dataset.openMessage)])));
     }
     filterRows(`${section}List`, $(`${contacts ? 'contact' : 'message'}Search`).value);
+  }
+
+  async function loadNotifications(serial = $('notificationsDevice')?.value, quiet = false) {
+    const list = $('notificationsList');
+    if (!list) return;
+    if (!serial) {
+      list.innerHTML = '<div class="empty">Connect an Android device to view its notifications.</div>';
+      return;
+    }
+    if (notificationsLoading) return;
+    notificationsLoading = true;
+    if (!quiet) list.innerHTML = '<div class="empty">Loading active notifications…</div>';
+    try {
+      const result = await api.listNotifications(serial);
+      if ($('notificationsDevice').value !== serial) return;
+      if (!result.ok) {
+        list.innerHTML = `<div class="empty">${escapeHtml(result.message || 'Could not read notifications.')}</div>`;
+        return;
+      }
+      const notifications = result.notifications || [];
+      const dot = document.querySelector('.top-right .iconbtn[title="Notifications"] .dot');
+      if (dot) dot.hidden = notifications.length === 0;
+      list.innerHTML = notifications.length ? notifications.map(notification => {
+        const title = notification.title || notification.text || notification.packageName || 'Notification';
+        const text = notification.text && notification.text !== title ? notification.text : '';
+        const date = Number.isFinite(notification.timestamp) && notification.timestamp > 0 ? new Date(notification.timestamp).toLocaleString() : '';
+        return `<article class="message-row notification-row"><div class="message-head"><b>${escapeHtml(title)}</b><span>${escapeHtml(date)}</span></div><div class="notification-app">${escapeHtml(notification.packageName)}</div>${text ? `<p>${escapeHtml(text)}</p>` : ''}</article>`;
+      }).join('') : '<div class="empty">No active notifications on this device.</div>';
+    } catch (error) {
+      list.innerHTML = `<div class="empty">${escapeHtml(error.message || 'Could not read notifications.')}</div>`;
+    } finally {
+      notificationsLoading = false;
+    }
   }
 
   function openMessageAside(message) {
@@ -405,7 +539,7 @@
     const cards = count ? devices.map(deviceCard).join('') : emptyDevices(message);
     $('device-list').innerHTML = cards;
     $('device-list2').innerHTML = cards;
-    for (const id of ['fileDevice', 'appDevice', 'contactsDevice', 'messagesDevice', 'storageDevice']) {
+    for (const id of ['fileDevice', 'appDevice', 'contactsDevice', 'messagesDevice', 'notificationsDevice', 'storageDevice']) {
       const select = $(id); if (!select) continue;
       const previous = select.value;
       const selected = devices.some(d => d.serial === previous) ? previous : devices[0]?.serial;
@@ -542,6 +676,9 @@
   };
 
   createManagerWorkspace();
+  setInterval(() => {
+    if ($('notifications')?.classList.contains('active')) loadNotifications(undefined, true);
+  }, 8000);
   window.addEventListener('DOMContentLoaded', async () => {
     const tools = await api.toolStatus();
     if (!tools.adb) notify('ADB not found. Follow the setup guide to connect a device.');
