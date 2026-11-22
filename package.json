@@ -1,6 +1,6 @@
 {
   "name": "mobidesk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Android phone and tablet manager for Windows",
   "main": "main.js",
   "author": "MobiDesk",
@@ -21,10 +21,37 @@
   "build": {
     "appId": "com.mobidesk.desktop",
     "productName": "MobiDesk",
-    "directories": { "output": "release" },
-    "files": ["main.js", "preload.js", "renderer/**/*", "assets/**/*", "package.json"],
-    "extraResources": [{ "from": "tools", "to": "tools", "filter": ["**/*"] }],
-    "win": { "target": ["nsis"], "icon": "assets/mobidesk.ico", "artifactName": "MobiDesk-Setup-${version}.${ext}" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "tools",
+        "to": "tools",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/mobidesk.ico",
+      "artifactName": "MobiDesk-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

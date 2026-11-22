@@ -27,6 +27,7 @@
   let notificationCountSerial = '';
   let storageBreakdownRequest = 0;
   let mirrorRecordingSerial = '';
+  let toolRecordingSerial = '';
   const storageCache = new Map();
   const storageBreakdownCache = new Map();
   const $ = id => document.getElementById(id);
@@ -68,8 +69,10 @@
     const appsNav = document.querySelector('.nav[data-page="apps"]');
     appsNav.insertAdjacentHTML('afterend', '<div class="nav" data-page="messages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v12H8l-4 4z"/><path d="M8 9h8M8 13h5"/></svg>Messages</div><div class="nav" data-page="contacts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1zM16 5a3 3 0 0 1 0 6m2 3a4 4 0 0 1 3 4v2h-4"/></svg>Contacts</div>');
     document.querySelector('.nav[data-page="contacts"]').insertAdjacentHTML('afterend', '<div class="nav" data-page="notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>Notifications</div>');
+    document.querySelector('.nav[data-page="notifications"]').insertAdjacentHTML('afterend', '<div class="nav" data-page="tools"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14.7 6.3 3 3M4 20l5.2-5.2M14 4a5 5 0 0 0-6.5 6.5L3 15v5h5l4.5-4.5A5 5 0 0 0 19 9"/></svg>Tools</div>');
     document.querySelectorAll('.nav[data-page="contacts"],.nav[data-page="messages"]').forEach(nav => nav.addEventListener('click', () => { navigate(nav.dataset.page); loadPersonalData(nav.dataset.page); }));
     document.querySelector('.nav[data-page="notifications"]').addEventListener('click', () => { navigate('notifications'); loadNotifications(); });
+    document.querySelector('.nav[data-page="tools"]').addEventListener('click', () => navigate('tools'));
     const notificationBell = document.querySelector('.top-right .iconbtn[title="Notifications"]');
     notificationBell.id = 'notificationBell';
     notificationBell.removeAttribute('onclick');
@@ -95,6 +98,7 @@
     statFree.querySelector('strong').id = 'statFree'; statFree.querySelector('strong').textContent = '—';
     document.querySelector('.overview').insertAdjacentHTML('afterend', '<div class="storage-section"><div class="section-head"><h2>Device storage</h2><span>Live capacity</span><select id="storageDevice" class="field storage-select"></select></div><div class="storage-grid" id="storageCards"><div class="card storage-card"><div class="empty">Connect a device to see its storage.</div></div></div></div>');
     document.querySelector('.storage-section').insertAdjacentHTML('beforeend', '<div class="storage-breakdown-toolbar"><button class="btn secondary" id="storageBreakdownButton">Show app and file-type usage</button><span id="storageBreakdownStatus">See space used by apps, photos, videos, audio, documents, and other files.</span></div><div class="storage-breakdown-grid" id="storageBreakdown" hidden><article class="card storage-breakdown-card"><div class="storage-breakdown-title"><h3>Shared files by type</h3><small>Android MediaStore index</small></div><div id="storageCategoryUsage" class="storage-usage-list"></div></article><article class="card storage-breakdown-card"><div class="storage-breakdown-title"><h3>Apps by storage</h3><small>App, data, and cache</small></div><div id="storageAppUsage" class="storage-app-list"></div></article></div>');
+    $('storageAppUsage').insertAdjacentHTML('beforebegin', '<div id="storageAppTotal" class="storage-app-total"></div>');
     $('storageBreakdownButton').addEventListener('click', () => loadStorageBreakdown($('storageDevice').value, true));
     const activityPanel = document.querySelector('.lower .card.panel:first-child');
     activityPanel.innerHTML = '<div class="panel-title"><h2>Device snapshot</h2><span class="textlink">Live device data</span></div><div id="deviceSnapshot" class="snapshot-empty">Connect a phone or tablet to load device details.</div>';
@@ -106,15 +110,58 @@
     const content = document.querySelector('.content');
     content.insertAdjacentHTML('beforeend', '<section class="view" id="contacts"><div class="hello"><div><p class="eyebrow">PEOPLE</p><h1>Contacts</h1><p class="sub">View phone numbers, and import or export contacts.</p></div></div><div class="card panel"><div class="data-toolbar"><select id="contactsDevice" class="field"></select><input id="contactSearch" class="field" placeholder="Search contacts or numbers"><button class="btn primary" id="loadContacts">Load contacts</button><button class="btn secondary" id="importContacts">Import vCard</button><button class="btn secondary" id="exportContacts">Export CSV</button></div><div class="data-list" id="contactsList"><div class="empty">Select a device to view its contacts.</div></div></div></section><section class="view" id="messages"><div class="hello"><div><p class="eyebrow">TEXT MESSAGES</p><h1>Messages</h1><p class="sub">Read SMS messages on a connected Android device.</p></div></div><div class="card panel"><div class="data-toolbar"><select id="messagesDevice" class="field"></select><input id="messageSearch" class="field" placeholder="Search messages or numbers"><button class="btn primary" id="loadMessages">Load messages</button></div><div class="data-list" id="messagesList"><div class="empty">Select a device to view its messages.</div></div></div></section>');
     content.insertAdjacentHTML('beforeend', '<section class="view" id="notifications"><div class="hello"><div><p class="eyebrow">DEVICE ALERTS</p><h1>Notifications</h1><p class="sub">Active notifications from your Android device. Content stays on this PC.</p></div></div><div class="card panel"><div class="data-toolbar"><select id="notificationsDevice" class="field" aria-label="Android device"></select><button class="btn secondary" id="refreshNotifications">Refresh</button></div><div class="data-list" id="notificationsList" aria-live="polite"><div class="empty">Choose a connected device to view its notifications.</div></div></div></section>');
+    content.insertAdjacentHTML('beforeend', '<section class="view" id="tools"><div class="hello"><div><p class="eyebrow">DEVICE UTILITIES</p><h1>Tools</h1><p class="sub">Record, back up, and check for deleted files on your Android device.</p></div><select id="toolsDevice" class="field tools-device-select" aria-label="Android device"></select></div><div class="tools-grid"><article class="card panel tool-card"><div class="tool-card-icon">●</div><h2>Screen recording</h2><p>Capture the phone screen to a video clip. Android limits each clip to 3 minutes.</p><div class="tool-card-actions"><button class="btn primary" id="startToolRecording">Start recording</button><button class="btn secondary" id="stopToolRecording" disabled>Stop & save</button></div><div class="tool-status" id="toolRecordingStatus" role="status">Recording is stopped.</div></article><article class="card panel tool-card"><div class="tool-card-icon">↓</div><h2>Device backup</h2><p>Try Android’s legacy ADB backup, including shared storage and app data where Android and each app allow it.</p><button class="btn primary" id="backupDevice">Create backup</button><div class="tool-status" id="backupStatus" role="status">You may need to unlock your phone and approve the backup prompt.</div><p class="tool-warning">Many current Android versions disable legacy ADB backups. This is not a full system image and cannot guarantee app data is included.</p></article><article class="card panel tool-card recovery-card"><div class="tool-card-icon">⌕</div><h2>Recover deleted files</h2><p>Scan accessible shared storage for files still present in common Trash or Recycle folders, then copy found items to this PC.</p><button class="btn primary" id="scanRecovery">Scan for recoverable files</button><div class="tool-status" id="recoveryStatus" role="status">Nothing scanned yet.</div><div class="recovery-list" id="recoveryList"></div><p class="tool-warning">This cannot undelete permanently erased data. Contacts, messages, and app-private data usually require the app’s own trash or a prior backup, which ADB may not access.</p></article></div></section>');
+    const backupCard = $('tools').querySelector('.tool-card:nth-child(2)');
+    backupCard.querySelector('p').textContent = 'Choose files from primary shared storage (/sdcard) or personal data for a MobiDesk backup, or use Android’s legacy full-backup format.';
+    backupCard.querySelector('#backupDevice').className = 'btn secondary';
+    backupCard.querySelector('#backupDevice').textContent = 'Legacy full backup (.ab)';
+    backupCard.querySelector('#backupDevice').insertAdjacentHTML('beforebegin', '<button class="btn primary" id="backupFilesButton">Choose backup options</button>');
+    backupCard.querySelector('#backupDevice').insertAdjacentHTML('afterend', '<div class="tool-card-actions"><button class="btn secondary" id="restoreFilesBackup">Restore MobiDesk backup</button><button class="btn secondary" id="restoreLegacyBackup">Restore .ab backup</button></div>');
+    $('backupStatus').textContent = 'Choose shared-storage files or personal data for a MobiDesk backup. Legacy backups depend on Android support.';
+    const recoveryCard = $('tools').querySelector('.recovery-card');
+    recoveryCard.querySelector('p').textContent = 'Search accessible storage for thumbnail, cache, backup, or duplicate copies. Enter a filename fragment to search all accessible shared-storage files.';
+    recoveryCard.querySelector('h2').textContent = 'Find remaining copies';
+    recoveryCard.querySelector('#scanRecovery').textContent = 'Search for recoverable copies';
+    recoveryCard.querySelector('#scanRecovery').insertAdjacentHTML('beforebegin', '<input class="field recovery-search" id="recoverySearch" maxlength="120" placeholder="Optional filename or part" aria-label="Optional filename search">');
+    recoveryCard.querySelector('.tool-warning').textContent = 'This can only find copies that still exist in accessible storage; it cannot scan erased flash space or private app caches. Use Restore MobiDesk backup above to restore a saved backup.';
+    document.body.insertAdjacentHTML('beforeend', '<div class="modal-wrap" id="backupOptionsModal"><section class="modal backup-options-modal" role="dialog" aria-modal="true" aria-labelledby="backupOptionsTitle"><div class="modal-head"><div><h3 id="backupOptionsTitle">Choose backup options</h3><p>Select accessible shared-storage files and/or personal data for a new MobiDesk backup folder.</p></div><button class="close" id="closeBackupOptions" aria-label="Close backup options">×</button></div><div class="backup-category-list"><label><input type="checkbox" data-backup-category value="photos" checked><span><b>Photos</b><small>JPG, PNG, HEIC, and other images</small></span></label><label><input type="checkbox" data-backup-category value="videos" checked><span><b>Videos</b><small>MP4, MOV, and other video files</small></span></label><label><input type="checkbox" data-backup-category value="audio" checked><span><b>Audio</b><small>MP3, WAV, and other audio files</small></span></label><label><input type="checkbox" data-backup-category value="documents" checked><span><b>Documents</b><small>PDF, Office files, text, and ebooks</small></span></label><label><input type="checkbox" data-backup-category value="other" checked><span><b>Other files</b><small>Files not matched by the categories above</small></span></label></div><div class="modal-actions"><button class="btn secondary" id="cancelBackupOptions">Cancel</button><button class="btn primary" id="confirmFileBackup">Choose backup location</button></div></section></div>');
+    $('backupOptionsModal').querySelector('.backup-category-list').insertAdjacentHTML('afterend', '<h4 class="backup-data-heading">Personal data & settings</h4><div class="backup-category-list"><label><input type="checkbox" data-backup-data-category value="contacts"><span><b>Contacts</b><small>Up to 10,000 readable names and phone numbers</small></span></label><label><input type="checkbox" data-backup-data-category value="messages"><span><b>Messages (SMS)</b><small>Up to 10,000 newest messages</small></span></label><label><input type="checkbox" data-backup-data-category value="settings"><span><b>System and Global settings</b><small>Secure settings are not included</small></span></label></div><p class="backup-data-note">Contacts and SMS access depends on Android permissions. Settings and personal data are saved locally in the backup folder.</p>');
+    $('notifications').querySelector('.hello .sub').textContent = 'View active notifications and reply to WhatsApp or Telegram from eligible message alerts. Replies require the MobiDesk companion and Android Notification access.';
+    $('refreshNotifications').insertAdjacentHTML('beforebegin', '<button class="btn secondary" id="notificationReplySetup" title="Install the MobiDesk companion and enable Android Notification access">Set up replies</button>');
     $('refreshNotifications').addEventListener('click', () => loadNotifications());
     $('notificationsDevice').addEventListener('change', () => loadNotifications());
+    $('notificationReplySetup').addEventListener('click', setupNotificationReplies);
+    $('startToolRecording').addEventListener('click', () => controlToolRecording(true));
+    $('stopToolRecording').addEventListener('click', () => controlToolRecording(false));
+    $('backupFilesButton').addEventListener('click', () => $('backupOptionsModal').classList.add('show'));
+    $('closeBackupOptions').addEventListener('click', closeBackupOptions);
+    $('cancelBackupOptions').addEventListener('click', closeBackupOptions);
+    $('backupOptionsModal').addEventListener('click', event => { if (event.target === $('backupOptionsModal')) closeBackupOptions(); });
+    $('confirmFileBackup').addEventListener('click', backupSelectedFiles);
+    $('backupDevice').addEventListener('click', backupLegacyDevice);
+    $('restoreFilesBackup').addEventListener('click', restoreFilesBackup);
+    $('restoreLegacyBackup').addEventListener('click', restoreLegacyBackup);
+    api.onBackupProgress(progress => {
+      if (progress.serial !== $('toolsDevice')?.value) return;
+      const task = progress.operation === 'restore' ? 'Restoring files' : progress.operation === 'restore-data'
+        ? `Restoring ${progress.category || 'personal data'}` : 'Backing up';
+      $('backupStatus').textContent = `${task}: ${progress.completed} of ${progress.total}…`;
+    });
+    $('scanRecovery').addEventListener('click', scanRecoveryFiles);
+    $('recoveryList').addEventListener('click', recoverFileToPc);
     $('refreshNotifications').insertAdjacentHTML('afterend', '<button class="btn secondary" id="clearNotifications" title="Dismiss all clearable notifications on the selected device">Clear notifications</button>');
     $('clearNotifications').addEventListener('click', clearNotifications);
+    $('notificationsList').addEventListener('submit', event => {
+      const form = event.target.closest('[data-notification-reply]');
+      if (!form) return;
+      event.preventDefault();
+      sendNotificationReply(form);
+    });
     document.body.insertAdjacentHTML('beforeend', '<div class="message-drawer-wrap" id="messageDrawer"><aside class="message-drawer" role="dialog" aria-modal="true" aria-labelledby="messageDrawerTitle"><div class="message-drawer-head"><div><p class="eyebrow">TEXT MESSAGE</p><h2 id="messageDrawerTitle">Message details</h2></div><button class="close" id="closeMessageDrawer" aria-label="Close message">×</button></div><div id="messageDrawerContent"></div></aside></div>');
     $('messageDrawer').addEventListener('click', event => { if (event.target === $('messageDrawer')) closeMessageDrawer(); });
     $('closeMessageDrawer').addEventListener('click', closeMessageDrawer);
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape') closeMessageDrawer();
+      if (event.key === 'Escape') { closeMessageDrawer(); closeBackupOptions(); }
       const modal = $('mediaPreview');
       if (!modal?.classList.contains('show')) return;
       if (event.key === 'Escape') { closeMediaPreview(); return; }
@@ -323,6 +370,7 @@
       button.disabled = false;
       status.textContent = 'Connect a device to view storage usage.';
       $('storageCategoryUsage').innerHTML = '<div class="storage-breakdown-message">No device selected.</div>';
+      $('storageAppTotal').textContent = 'No device selected.';
       $('storageAppUsage').innerHTML = '<div class="storage-breakdown-message">No device selected.</div>';
       return;
     }
@@ -334,6 +382,7 @@
     button.disabled = true;
     status.innerHTML = loadingInlineMarkup('Reading Android storage statistics…');
     $('storageCategoryUsage').innerHTML = `<div class="storage-breakdown-message">${loadingInlineMarkup('Reading file types…')}</div>`;
+    $('storageAppTotal').innerHTML = loadingInlineMarkup('Calculating total app usage…');
     $('storageAppUsage').innerHTML = `<div class="storage-breakdown-message">${loadingInlineMarkup('Reading app sizes…')}</div>`;
     try {
       const result = await api.storageBreakdown(serial);
@@ -344,6 +393,7 @@
       if (request !== storageBreakdownRequest) return;
       status.textContent = error.message || 'Could not read storage usage.';
       $('storageCategoryUsage').innerHTML = `<div class="storage-breakdown-message">${escapeHtml(status.textContent)}</div>`;
+      $('storageAppTotal').textContent = escapeHtml(status.textContent);
       $('storageAppUsage').innerHTML = `<div class="storage-breakdown-message">${escapeHtml(status.textContent)}</div>`;
     } finally {
       if (request === storageBreakdownRequest) button.disabled = false;
@@ -352,6 +402,12 @@
 
   function renderStorageBreakdown(result) {
     const status = $('storageBreakdownStatus');
+    if (result.appError || !Array.isArray(result.apps)) {
+      $('storageAppTotal').innerHTML = `<span>Total app storage usage</span><strong>Unavailable</strong>`;
+    } else {
+      const totalBytes = result.apps.reduce((sum, app) => sum + (Number.isFinite(app.totalBytes) && app.totalBytes >= 0 ? app.totalBytes : 0), 0);
+      $('storageAppTotal').innerHTML = `<span>Total across ${result.apps.length} apps</span><strong>${formatBytes(totalBytes)}</strong>`;
+    }
     if (result.categories) {
       const categories = [
         ['Photos', result.categories.photos],
@@ -371,11 +427,14 @@
     }
     if (result.apps?.length) {
       const shownApps = result.apps.slice(0, 100);
-      $('storageAppUsage').innerHTML = shownApps.map(app => `<article class="storage-app-row"><div><b>${escapeHtml(app.packageName)}</b><small>App ${formatBytes(app.codeBytes)} · Data ${formatBytes(app.dataBytes)} · Cache ${formatBytes(app.cacheBytes)}</small></div><strong>${formatBytes(app.totalBytes)}</strong></article>`).join('') + (result.apps.length > shownApps.length ? `<div class="storage-breakdown-message">Showing the 100 largest apps out of ${result.apps.length}.</div>` : '');
+      $('storageAppUsage').innerHTML = shownApps.map(app => {
+        const label = result.labels?.[app.packageName];
+        return `<article class="storage-app-row"><div><b>${escapeHtml(label || app.packageName)}</b><small>${label ? `${escapeHtml(app.packageName)} · ` : ''}App ${formatBytes(app.codeBytes)} · Data ${formatBytes(app.dataBytes)} · Cache ${formatBytes(app.cacheBytes)}</small></div><strong>${formatBytes(app.totalBytes)}</strong></article>`;
+      }).join('') + (result.apps.length > shownApps.length ? `<div class="storage-breakdown-message">Showing the 100 largest apps out of ${result.apps.length}.</div>` : '');
     } else {
-      $('storageAppUsage').innerHTML = `<div class="storage-breakdown-message">${escapeHtml(result.appError || result.message || 'Per-app statistics are unavailable.')}</div>`;
+      $('storageAppUsage').innerHTML = `<div class="storage-breakdown-message">${escapeHtml(result.appError || (Array.isArray(result.apps) ? 'No per-app usage data was returned.' : result.message || 'Per-app statistics are unavailable.'))}</div>`;
     }
-    const errors = [result.appError, result.categoryError].filter(Boolean);
+    const errors = [result.appError, result.categoryError, result.labelError].filter(Boolean);
     const statusParts = errors.slice();
     if (Number.isFinite(result.sampledAt)) statusParts.push(`Read at ${new Date(result.sampledAt).toLocaleTimeString()}. Android statistics may be cached.`);
     else if (result.message) statusParts.push(result.message);
@@ -585,12 +644,12 @@
     try { result = await api.listApps(serial); }
     catch (error) { $('appList').innerHTML = `<div class="empty">${escapeHtml(error.message || 'Could not load installed apps.')}</div>`; return; }
     if (!result.ok) { $('appList').innerHTML = `<div class="empty">${escapeHtml(result.message)}</div>`; return; }
-    $('appList').innerHTML = result.apps.length ? result.apps.map(pkg => {
-      const name = pkg.split('.').filter(Boolean).pop() || pkg;
+    $('appList').innerHTML = (result.labelError ? `<div class="app-label-note">${escapeHtml(result.labelError)}</div>` : '') + (result.apps.length ? result.apps.map(pkg => {
+      const name = result.labels?.[pkg] || pkg.split('.').filter(Boolean).pop() || pkg;
       const letter = name.slice(0, 1).toUpperCase();
       const color = `icon-tone-${(name.charCodeAt(0) || 65) % 6}`;
       return `<article class="app-row"><span class="app-icon ${color}">${escapeHtml(letter)}</span><div class="app-copy"><b>${escapeHtml(name)}</b><small>${escapeHtml(pkg)}</small></div><button class="btn secondary app-remove" data-uninstall="${escapeHtml(pkg)}">Uninstall</button></article>`;
-    }).join('') : '<div class="empty">No third-party apps were found.</div>';
+    }).join('') : '<div class="empty">No third-party apps were found.</div>');
     $('appList').querySelectorAll('[data-uninstall]').forEach(button => button.addEventListener('click', async () => {
       const pkg = button.dataset.uninstall;
       if (!window.confirm(`Uninstall ${pkg} from this Android device?`)) return;
@@ -686,19 +745,26 @@
       const result = await api.listNotifications(serial);
       if ($('notificationsDevice').value !== serial) return;
       if (!result.ok) {
-        list.innerHTML = `<div class="empty">${escapeHtml(result.message || 'Could not read notifications.')}</div>`;
+        if (!quiet) list.innerHTML = `<div class="empty">${escapeHtml(result.message || 'Could not read notifications.')}</div>`;
         return;
       }
       const notifications = result.notifications || [];
       updateNotificationCount(notifications.length, serial);
+      if (quiet) return;
       list.innerHTML = notifications.length ? notifications.map(notification => {
         const title = notification.title || notification.text || notification.packageName || 'Notification';
         const text = notification.text && notification.text !== title ? notification.text : '';
         const date = Number.isFinite(notification.timestamp) && notification.timestamp > 0 ? new Date(notification.timestamp).toLocaleString() : '';
-        return `<article class="message-row notification-row"><div class="message-head"><b>${escapeHtml(title)}</b><span>${escapeHtml(date)}</span></div><div class="notification-app">${escapeHtml(notification.packageName)}</div>${text ? `<p>${escapeHtml(text)}</p>` : ''}</article>`;
+        const replyApp = notification.packageName === 'com.whatsapp' || notification.packageName === 'com.whatsapp.w4b'
+          ? 'WhatsApp'
+          : notification.packageName === 'org.telegram.messenger' || notification.packageName === 'org.thunderdog.challegram' ? 'Telegram' : '';
+        const replyForm = replyApp && notification.replyKey
+          ? `<form class="notification-reply" data-notification-reply data-reply-key="${escapeHtml(notification.replyKey)}" data-reply-app="${replyApp}"><input class="field" type="text" maxlength="4000" autocomplete="off" aria-label="Reply to ${replyApp}" placeholder="Reply to ${replyApp}…"><button class="btn secondary" type="submit">Reply</button></form>`
+          : '';
+        return `<article class="message-row notification-row"><div class="message-head"><b>${escapeHtml(title)}</b><span>${escapeHtml(date)}</span></div><div class="notification-app">${escapeHtml(notification.packageName)}</div>${text ? `<p>${escapeHtml(text)}</p>` : ''}${replyForm}</article>`;
       }).join('') : '<div class="empty">No active notifications on this device.</div>';
     } catch (error) {
-      list.innerHTML = `<div class="empty">${escapeHtml(error.message || 'Could not read notifications.')}</div>`;
+      if (!quiet) list.innerHTML = `<div class="empty">${escapeHtml(error.message || 'Could not read notifications.')}</div>`;
     } finally {
       notificationsLoading = false;
       if (clearButton) clearButton.disabled = notificationCount === 0;
@@ -730,7 +796,246 @@
       button.textContent = 'Clear notifications';
       button.disabled = notificationCount === 0;
     }
-    if (refresh) await loadNotifications(undefined, true);
+    if (refresh) await loadNotifications();
+  }
+
+  async function controlToolRecording(start) {
+    const serial = start ? $('toolsDevice').value : toolRecordingSerial || $('toolsDevice').value;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    if (start && toolRecordingSerial) { notify('Stop the current recording before starting another.'); return; }
+    const startButton = $('startToolRecording');
+    const stopButton = $('stopToolRecording');
+    const status = $('toolRecordingStatus');
+    const button = start ? startButton : stopButton;
+    button.disabled = true;
+    button.innerHTML = loadingInlineMarkup(start ? 'Starting…' : 'Saving…');
+    status.textContent = start ? 'Starting Android screen recording…' : 'Stopping and saving the recording…';
+    try {
+      const result = await api.mirrorAction(serial, start ? 'record-start' : 'record-stop');
+      if (result.canceled) {
+        status.textContent = 'Recording stopped, but the save dialog was canceled. The clip remains in Movies on the device.';
+        toolRecordingSerial = '';
+        startButton.disabled = false;
+        stopButton.disabled = true;
+        return;
+      }
+      if (!result.ok) {
+        status.textContent = result.message || 'Screen recording failed.';
+        notify(result.message || 'Screen recording failed.');
+        return;
+      }
+      if (start) {
+        toolRecordingSerial = serial;
+        startButton.disabled = true;
+        stopButton.disabled = false;
+      } else {
+        toolRecordingSerial = '';
+        startButton.disabled = false;
+        stopButton.disabled = true;
+      }
+      status.textContent = result.message;
+      notify(result.message);
+    } catch (error) {
+      status.textContent = error.message || 'Screen recording failed.';
+      notify(error.message || 'Screen recording failed.');
+    } finally {
+      startButton.textContent = 'Start recording';
+      stopButton.textContent = 'Stop & save';
+      startButton.disabled = Boolean(toolRecordingSerial);
+      stopButton.disabled = !toolRecordingSerial;
+    }
+  }
+
+  function closeBackupOptions() {
+    $('backupOptionsModal').classList.remove('show');
+  }
+
+  async function backupSelectedFiles() {
+    const serial = $('toolsDevice').value;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    const categories = [...document.querySelectorAll('[data-backup-category]:checked')].map(input => input.value);
+    const dataCategories = [...document.querySelectorAll('[data-backup-data-category]:checked')].map(input => input.value);
+    if (!categories.length && !dataCategories.length) { notify('Select at least one file type or personal-data category to back up.'); return; }
+    closeBackupOptions();
+    const button = $('confirmFileBackup');
+    const status = $('backupStatus');
+    button.disabled = true;
+    button.innerHTML = loadingInlineMarkup('Preparing…');
+    status.textContent = categories.length ? 'Scanning accessible shared storage for selected file types…' : 'Preparing selected personal data…';
+    try {
+      const result = await api.backupFiles(serial, categories, dataCategories);
+      if (!result.canceled) {
+        status.textContent = result.message || (result.ok ? 'Backup completed.' : 'Backup failed.');
+        notify(result.message || (result.ok ? 'Backup completed.' : 'Backup failed.'));
+      } else {
+        status.textContent = 'Backup location selection canceled.';
+      }
+    } catch (error) {
+      status.textContent = error.message || 'File backup failed.';
+      notify(error.message || 'File backup failed.');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Choose backup location';
+    }
+  }
+
+  async function backupLegacyDevice() {
+    const serial = $('toolsDevice').value;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    if (!window.confirm('This uses Android’s legacy ADB backup feature. Many current Android versions do not support it, and app data may be excluded. Continue?')) return;
+    const button = $('backupDevice');
+    const status = $('backupStatus');
+    button.disabled = true;
+    button.innerHTML = loadingInlineMarkup('Backing up…');
+    status.textContent = 'Waiting for Android to complete the backup. Unlock your phone and approve its prompt if one appears.';
+    try {
+      const result = await api.backupDevice(serial);
+      if (!result.canceled) {
+        status.textContent = result.message || (result.ok ? 'Backup completed.' : 'Backup failed.');
+        notify(result.message || (result.ok ? 'Backup completed.' : 'Backup failed.'));
+      } else {
+        status.textContent = 'Legacy backup canceled.';
+      }
+    } catch (error) {
+      status.textContent = error.message || 'Backup failed.';
+      notify(error.message || 'Backup failed.');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Legacy full backup (.ab)';
+    }
+  }
+
+  async function restoreFilesBackup() {
+    const serial = $('toolsDevice').value;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    const button = $('restoreFilesBackup');
+    button.disabled = true;
+    button.innerHTML = loadingInlineMarkup('Restoring…');
+    $('backupStatus').textContent = 'Choose a MobiDesk backup folder to restore.';
+    try {
+      const result = await api.restoreFilesBackup(serial);
+      if (!result.canceled) {
+        $('backupStatus').textContent = result.message || (result.ok ? 'File restore completed.' : 'File restore failed.');
+        notify(result.message || (result.ok ? 'File restore completed.' : 'File restore failed.'));
+      } else $('backupStatus').textContent = 'File restore canceled.';
+    } catch (error) {
+      $('backupStatus').textContent = error.message || 'File restore failed.';
+      notify(error.message || 'File restore failed.');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Restore file backup';
+    }
+  }
+
+  async function restoreLegacyBackup() {
+    const serial = $('toolsDevice').value;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    const button = $('restoreLegacyBackup');
+    button.disabled = true;
+    button.innerHTML = loadingInlineMarkup('Restoring…');
+    $('backupStatus').textContent = 'Choose a legacy .ab archive to restore.';
+    try {
+      const result = await api.restoreLegacyBackup(serial);
+      if (!result.canceled) {
+        $('backupStatus').textContent = result.message || (result.ok ? 'Legacy restore completed.' : 'Legacy restore failed.');
+        notify(result.message || (result.ok ? 'Legacy restore completed.' : 'Legacy restore failed.'));
+      } else $('backupStatus').textContent = 'Legacy restore canceled.';
+    } catch (error) {
+      $('backupStatus').textContent = error.message || 'Legacy restore failed.';
+      notify(error.message || 'Legacy restore failed.');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Restore .ab backup';
+    }
+  }
+
+  async function scanRecoveryFiles() {
+    const serial = $('toolsDevice').value;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    const searchTerm = $('recoverySearch').value.trim();
+    const button = $('scanRecovery');
+    const status = $('recoveryStatus');
+    button.disabled = true;
+    button.innerHTML = loadingInlineMarkup('Scanning…');
+    status.textContent = searchTerm ? `Searching accessible files for “${searchTerm}”…` : 'Looking for accessible thumbnail, cache, backup, and duplicate copies…';
+    $('recoveryList').innerHTML = '';
+    try {
+      const result = await api.scanRecoveryFiles(serial, searchTerm);
+      if (!result.ok) {
+        status.textContent = result.message || 'Recovery scan failed.';
+        notify(result.message || 'Recovery scan failed.');
+        return;
+      }
+      const files = result.files || [];
+      status.textContent = result.message || `${files.length} possible cop${files.length === 1 ? 'y' : 'ies'} found${result.truncated ? ' (showing the first 500)' : ''}.`;
+      $('recoveryList').innerHTML = files.map(file => `<div class="recovery-row"><span><b>${escapeHtml(file.name)}</b><small>${escapeHtml(file.reason)} · ${escapeHtml(file.path)}</small></span><button class="btn secondary" data-recovery-path="${escapeHtml(file.path)}" data-recovery-serial="${escapeHtml(serial)}">Save copy to PC</button></div>`).join('');
+    } catch (error) {
+      status.textContent = error.message || 'Recovery scan failed.';
+      notify(error.message || 'Recovery scan failed.');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Search for recoverable copies';
+    }
+  }
+
+  async function recoverFileToPc(event) {
+    const button = event.target.closest('[data-recovery-path]');
+    if (!button) return;
+    button.disabled = true;
+    button.textContent = 'Saving…';
+    try {
+      const result = await api.downloadFile(button.dataset.recoverySerial, button.dataset.recoveryPath);
+      if (!result.canceled) notify(result.message || 'Could not save this file.');
+    } catch (error) {
+      notify(error.message || 'Could not save this file.');
+    } finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = 'Save copy to PC';
+      }
+    }
+  }
+
+  async function setupNotificationReplies() {
+    const serial = $('notificationsDevice').value;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    const button = $('notificationReplySetup');
+    button.disabled = true;
+    button.innerHTML = loadingInlineMarkup('Setting up…');
+    try {
+      const result = await api.setupNotificationReplies(serial);
+      if (!result.canceled) notify(result.message || (result.ok ? 'Reply support setup started.' : 'Could not set up reply support.'));
+    } catch (error) {
+      notify(error.message || 'Could not set up reply support.');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Set up replies';
+    }
+  }
+
+  async function sendNotificationReply(form) {
+    const input = form.querySelector('input');
+    const text = input.value;
+    if (!text.trim()) { input.focus(); return; }
+    const serial = $('notificationsDevice').value;
+    if (!serial) { notify('Connect an Android device first.'); return; }
+    const button = form.querySelector('button');
+    button.disabled = true;
+    button.innerHTML = loadingInlineMarkup('Sending…');
+    try {
+      const result = await api.replyToNotification(serial, form.dataset.replyKey, text);
+      if (!result.ok) { notify(result.message || 'Could not send this reply.'); return; }
+      input.value = '';
+      notify(`Reply sent to ${form.dataset.replyApp}.`);
+      await loadNotifications(serial);
+    } catch (error) {
+      notify(error.message || 'Could not send this reply.');
+    } finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = 'Reply';
+      }
+    }
   }
 
   function openMessageAside(message) {
@@ -787,7 +1092,7 @@
     const cards = count ? devices.map(deviceCard).join('') : emptyDevices(message);
     $('device-list').innerHTML = cards;
     $('device-list2').innerHTML = cards;
-    for (const id of ['fileDevice', 'appDevice', 'contactsDevice', 'messagesDevice', 'notificationsDevice', 'storageDevice']) {
+    for (const id of ['fileDevice', 'appDevice', 'contactsDevice', 'messagesDevice', 'notificationsDevice', 'storageDevice', 'toolsDevice']) {
       const select = $(id); if (!select) continue;
       const previous = select.value;
       const selected = devices.some(d => d.serial === previous) ? previous : devices[0]?.serial;
